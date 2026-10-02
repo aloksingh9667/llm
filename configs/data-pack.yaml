@@ -1,0 +1,8 @@
+# Sequence packing spec — Step 10 (seed demo values).
+# Real run: seq_len 512/2048 on the 10M+ corpus (myai-20m/100m configs).
+version: "0.1.0"
+corpus_path: data/tokenizer_corpus/train.txt
+tokenizer_path: data/tokenizer_corpus/tokenizer-3b.json
+output_dir: data/processed/seed-3b
+seq_len: 64
+val_ratio: 0.2
