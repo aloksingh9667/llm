@@ -91,8 +91,11 @@ class BPETokenizer:
         # Filter rare words (keeps the common-case loop small).
         if min_frequency > 1:
             words = Counter({w: c for w, c in words.items() if c >= min_frequency})
-            if not words:
-                raise ValueError("min_frequency filtered out every word")
+        if not words:
+            raise ValueError(
+                "no words to train on — corpus empty or "
+                "min_frequency filtered everything out"
+            )
 
         self.vocab = [bytes([i]) for i in range(256)]
         self.merges = []

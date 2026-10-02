@@ -10,7 +10,7 @@ sources:
     kind: local_txt
     license: "seed-internal — replace with FineWeb/Stack samples + manifests in 3b"
     max_files: 100
-    max_bytes_per_file: 1048576
+    max_bytes_per_file: 268435456
 
 normalization:
   unicode_form: NFKC

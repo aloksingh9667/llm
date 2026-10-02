@@ -21,7 +21,8 @@ def collect_files(source_dir: str, max_files: int, max_bytes_per_file: int) -> l
     if not root.exists():
         return []
     files = sorted(
-        p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".txt", ".md", ".py"}
+        p for p in root.rglob("*") if p.is_file() and p.name != ".gitkeep"
+        and p.suffix.lower() in {".txt", ".md", ".py"}
     )
     out = []
     for p in files:
@@ -61,16 +62,29 @@ def build_tokenizer_corpus(
             except (UnicodeError, OSError):
                 continue
             files_read += 1
-            doc = normalize_text(raw, **norm_kwargs)
-            if len(doc) < min_doc_chars:
-                too_short += 1
-                continue
-            h = _sha256(doc)
-            if h in seen:
-                duplicates += 1
-                continue
-            seen.add(h)
-            docs.append(doc)
+            # Streamed dumps (.txt/.md) hold many docs separated by blank
+            # lines — split so dedup/manifest stay per-document. Code files
+            # stay whole (blank lines are not doc boundaries there).
+            chunks = (
+                raw.split("\n\n") if path.suffix.lower() in {".txt", ".md"} else [raw]
+            )
+            for chunk in chunks:
+                doc = normalize_text(chunk, **norm_kwargs)
+                if len(doc) < min_doc_chars:
+                    too_short += 1
+                    continue
+                h = _sha256(doc)
+                if h in seen:
+                    duplicates += 1
+                    continue
+                seen.add(h)
+                docs.append(doc)
+
+    if not docs:
+        raise ValueError(
+            f"no documents survived (files_read={files_read}, "
+            f"too_short={too_short}) — check source caps and min_doc_chars"
+        )
 
     corpus_file = Path(corpus_path)
     corpus_file.parent.mkdir(parents=True, exist_ok=True)
