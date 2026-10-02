@@ -1,0 +1,13 @@
+# BPE training spec — Step 3b.
+# Seed demo uses a small vocab (tiny corpus can't support 32k merges);
+# the 32k freeze on the real corpus happens in Step 3c.
+version: "0.1.0"
+corpus_path: data/tokenizer_corpus/train.txt
+output_path: data/tokenizer_corpus/tokenizer-3b.json
+vocab_size: 1000
+min_frequency: 1
+special_tokens:
+  - <|endoftext|>
+target_32k:
+  vocab_size: 32000
+  note: "Step 3c: retrain on 10M+ token FineWeb/Stack mix, then freeze configs/tokenizer-32k.yaml"
