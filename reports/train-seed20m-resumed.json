@@ -1,0 +1,22 @@
+{
+  "model": "MyAI-20M",
+  "params": 4892416,
+  "vocab_size": 570,
+  "steps": 20,
+  "first_loss": 1.4388948678970337,
+  "final_train_loss": 0.43875744938850403,
+  "val_loss": 6.586819171905518,
+  "val_perplexity": 725.4696044921875,
+  "tokens_seen": 2560,
+  "seconds": 4.3,
+  "history": [
+    {
+      "step": 70,
+      "loss": 0.8622670769691467
+    },
+    {
+      "step": 80,
+      "loss": 0.43875744938850403
+    }
+  ]
+}

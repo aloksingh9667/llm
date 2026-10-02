@@ -1,0 +1,7 @@
+# Seed-demo packing: short blocks so 156 tokens yield real batches.
+version: "0.1.0"
+corpus_path: data/tokenizer_corpus/train.txt
+tokenizer_path: data/tokenizer_corpus/tokenizer-3b.json
+output_dir: data/processed/seed16
+seq_len: 16
+val_ratio: 0.2
