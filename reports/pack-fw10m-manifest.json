@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "tokenizer": "data/tokenizer_corpus/tokenizer-32k.json",
+  "tokenizer_sha256": "a6eb59806f2f82fcd9485742d0693c4f87bf1717299519e0f536657f76ab73e2",
+  "vocab_size": 32000,
+  "seq_len": 512,
+  "split_method": "stable-md5-doc-hash",
+  "eos_text": "<|endoftext|>",
+  "train_docs": 13799,
+  "val_docs": 142,
+  "train_sequences": 17484,
+  "val_sequences": 187,
+  "total_tokens": 9047552
+}

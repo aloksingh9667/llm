@@ -1,0 +1,65 @@
+{
+  "vocab_size": 32000,
+  "n_merges": 31743,
+  "splits": {
+    "prose": {
+      "n_docs": 2,
+      "n_chars": 143,
+      "n_bytes": 143,
+      "n_tokens": 32,
+      "tokens_per_byte": 0.22377622377622378,
+      "chars_per_token": 4.46875,
+      "fertility": 1.5238095238095237,
+      "tokens_per_sec": 51477.23579893936,
+      "round_trip_rate": 1.0
+    },
+    "code": {
+      "n_docs": 3,
+      "n_chars": 40215071,
+      "n_bytes": 40400307,
+      "n_tokens": 9064753,
+      "tokens_per_byte": 0.22437336924197135,
+      "chars_per_token": 4.436422150719386,
+      "fertility": 1.3437465534518847,
+      "tokens_per_sec": 135457.09737813316,
+      "round_trip_rate": 0.6666666666666666
+    }
+  },
+  "overall": {
+    "n_docs": 5,
+    "n_chars": 40215214,
+    "n_bytes": 40400450,
+    "n_tokens": 9064785,
+    "tokens_per_byte": 0.22437336712833644,
+    "chars_per_token": 4.436422264841362,
+    "fertility": 1.3437471139881834,
+    "tokens_per_sec": 135638.16779376304,
+    "round_trip_rate": 0.8
+  },
+  "multilingual_probes": {
+    "hindi": {
+      "n_docs": 1,
+      "n_chars": 57,
+      "n_bytes": 149,
+      "n_tokens": 149,
+      "tokens_per_byte": 1.0,
+      "chars_per_token": 0.3825503355704698,
+      "fertility": 12.416666666666666,
+      "tokens_per_sec": 780378.4573689188,
+      "round_trip_rate": 1.0
+    },
+    "hinglish": {
+      "n_docs": 1,
+      "n_chars": 44,
+      "n_bytes": 44,
+      "n_tokens": 20,
+      "tokens_per_byte": 0.45454545454545453,
+      "chars_per_token": 2.2,
+      "fertility": 2.2222222222222223,
+      "tokens_per_sec": 171728.36002058384,
+      "round_trip_rate": 1.0
+    }
+  },
+  "tokenizer_path": "data/tokenizer_corpus/tokenizer-32k.json",
+  "freeze_decision": "FROZEN CANDIDATE \u2014 32k vocab on 10M+ corpus; review metrics table before locking configs/tokenizer-32k.yaml."
+}

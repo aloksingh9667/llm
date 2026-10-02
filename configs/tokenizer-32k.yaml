@@ -1,0 +1,27 @@
+# MyAI tokenizer v0.1 — FROZEN (K1 kernel, 2026-10-02).
+# Built by scripts/train_tokenizer.py --fast on the 10M FineWeb corpus.
+# Review gate passed: round-trip 1.00, prose 0.224 / code 0.224 tok/byte.
+version: "0.1.0"
+name: myai-bpe-32k-v01
+vocab_size: 32000
+merges: 31743
+special_tokens:
+  - <|endoftext|>
+corpus:
+  source: FineWeb 10M-token sample (ODC-By-1.0)
+  docs_kept: 13941
+  chars: 40005789
+  manifest: data/tokenizer_corpus/manifest.json
+training_tokens_actual: 9047552
+packing:
+  seq_len: 512
+  train_sequences: 17484
+  val_sequences: 1
+  split: stable-md5-doc-hash
+  manifest: data/processed/fw10m-32k/manifest.json
+artifacts:
+  # Large files live in Kaggle kernel output / local gitignored storage, not git.
+  kaggle_kernel: aloksingh9182/myai-data-10m
+  tokenizer_json: data/tokenizer_corpus/tokenizer-32k.json
+eval_report: reports/tokenizer-32k-eval.json
+freeze_decision: FROZEN — use for all 20M/100M runs until v0.2 review.
