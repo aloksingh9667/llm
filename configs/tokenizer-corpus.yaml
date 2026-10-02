@@ -1,0 +1,30 @@
+# Tokenizer training corpus spec — Step 3a (English-only first).
+# Full-permit sources (FineWeb 10M stream, Stack sample) plug in here in 3b.
+version: "0.1.0"
+name: myai-tokenizer-corpus-en-v0.1
+
+sources:
+  # Local seed files. The prepare script writes a built-in English+code
+  # sample here when data/raw is empty so the pipeline works fully offline.
+  - path: data/raw
+    kind: local_txt
+    license: "seed-internal — replace with FineWeb/Stack samples + manifests in 3b"
+    max_files: 100
+    max_bytes_per_file: 1048576
+
+normalization:
+  unicode_form: NFKC
+  collapse_whitespace: true
+  strip_controls: true
+  max_newlines: 2
+
+output:
+  corpus_path: data/tokenizer_corpus/train.txt
+  manifest_path: data/tokenizer_corpus/manifest.json
+  doc_separator: "\n\n"
+  min_doc_chars: 20
+
+provenance:
+  source: "local seed (offline) — FineWeb/Stack streaming lands in 3b"
+  license: "seed-internal"
+  allowed_use: "research/bootstrap only — every external source gets its own manifest per doc section 9"
