@@ -166,12 +166,13 @@ def main() -> None:
     save_state(str(out / "final.pt"), model, opt, step, tokens_seen, tcfg, scaler,
                _data_pos(args, batches_consumed),
                {"dataset_manifest": manifest, "data_dir": str(data)})
+    final_train_loss = next((r["loss"] for r in reversed(history) if "loss" in r), None)
     report = {
         "model": cfg.model_name, "params": model.num_parameters(),
         "vocab_size": cfg.vocab_size, "device": device, "amp": use_amp,
         "accum_steps": tcfg.accum_steps, "micro_batch": tcfg.batch_size,
         "steps": tcfg.max_steps - start_step, "first_loss": first_loss,
-        "final_train_loss": history[-1].get("loss"),
+        "final_train_loss": final_train_loss,
         "val_loss": val,
         "val_perplexity": float(torch.exp(torch.tensor(val)).item()) if val == val else None,
         "tokens_seen": tokens_seen, "seconds": round(time.time() - t0, 1),
@@ -180,7 +181,8 @@ def main() -> None:
     rp = Path(args.report)
     rp.parent.mkdir(parents=True, exist_ok=True)
     rp.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"done: {first_loss:.4f} -> {report['final_train_loss']:.4f} train, val={val:.4f}")
+    fmt = lambda v: f"{v:.4f}" if v is not None else "n/a"
+    print(f"done: {fmt(first_loss)} -> {fmt(report['final_train_loss'])} train, val={val:.4f}")
     print(f"checkpoint -> {out / 'final.pt'}  report -> {rp}")
 
 
