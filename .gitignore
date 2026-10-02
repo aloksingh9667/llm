@@ -28,7 +28,7 @@ checkpoints/*
 
 # Experiment tracking
 wandb/
-runs/
+/runs/
 lightning_logs/
 
 # OS / IDE
