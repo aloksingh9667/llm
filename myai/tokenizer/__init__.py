@@ -1,6 +1,7 @@
 """Tokenizer pipeline package (BPE/Unigram training, 32K start)."""
 from .bpe import BPETokenizer
 from .corpus import build_tokenizer_corpus
+from .evaluate import evaluate_split, evaluate_tokenizer
 from .normalization import normalize_text
 
-__all__ = ["normalize_text", "build_tokenizer_corpus", "BPETokenizer"]
+__all__ = ["normalize_text", "build_tokenizer_corpus", "BPETokenizer", "evaluate_split", "evaluate_tokenizer"]

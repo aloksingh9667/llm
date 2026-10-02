@@ -1,0 +1,41 @@
+{
+  "vocab_size": 570,
+  "n_merges": 313,
+  "splits": {
+    "prose": {
+      "n_docs": 4,
+      "n_chars": 699,
+      "n_bytes": 699,
+      "n_tokens": 120,
+      "tokens_per_byte": 0.17167381974248927,
+      "chars_per_token": 5.825,
+      "fertility": 1.2371134020618557,
+      "tokens_per_sec": 63341.25098428318,
+      "round_trip_rate": 1.0
+    },
+    "code": {
+      "n_docs": 3,
+      "n_chars": 410,
+      "n_bytes": 410,
+      "n_tokens": 154,
+      "tokens_per_byte": 0.375609756097561,
+      "chars_per_token": 2.6623376623376624,
+      "fertility": 4.4,
+      "tokens_per_sec": 184497.4241648935,
+      "round_trip_rate": 1.0
+    }
+  },
+  "overall": {
+    "n_docs": 7,
+    "n_chars": 1109,
+    "n_bytes": 1109,
+    "n_tokens": 274,
+    "tokens_per_byte": 0.24706943192064923,
+    "chars_per_token": 4.047445255474453,
+    "fertility": 2.0757575757575757,
+    "tokens_per_sec": 102687.10414502333,
+    "round_trip_rate": 1.0
+  },
+  "tokenizer_path": "data\\tokenizer_corpus\\tokenizer-3b.json",
+  "freeze_decision": "SEED-DEMO ONLY \u2014 798-char corpus supports 313 merges (vocab 570); the 32k freeze needs the 10M+ token FineWeb/Stack mix (Step 3c-target). Procedure (metrics + report format) is frozen; vocab is NOT."
+}
