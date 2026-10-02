@@ -16,6 +16,8 @@ data/processed/*
 !data/processed/.gitkeep
 data/tokenizer_corpus/*
 !data/tokenizer_corpus/.gitkeep
+data/sft/*
+!data/sft/.gitkeep
 *.parquet
 *.arrow
 

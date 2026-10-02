@@ -40,6 +40,7 @@ from myai.training.loop import (
     save_state,
     set_seed,
 )
+from myai.training.sft import sft_loss
 
 
 def _pairs(blob: dict):
@@ -72,6 +73,8 @@ def main() -> None:
     parser.add_argument("--no-shuffle", action="store_true",
                         help="disable train shuffling: resume is then exactly "
                              "reproducible from data_pos (recommended for research runs)")
+    parser.add_argument("--sft", action="store_true",
+                        help="SFT mode: labels use -100 prompt masking (myai.training.sft)")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -136,7 +139,8 @@ def main() -> None:
         for _ in range(tcfg.accum_steps):
             batch = {k: v.to(device, non_blocking=True) for k, v in next(cycle).items()}
             micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler,
-                                     tcfg.accum_steps, args.amp_dtype)
+                                     tcfg.accum_steps, args.amp_dtype,
+                                     sft_loss if args.sft else None)
             micro_toks += batch["input_ids"].numel()
         micro_loss /= tcfg.accum_steps  # mean over micro-batches (not the sum)
         accum_step(model, opt, tcfg.grad_clip, scaler)

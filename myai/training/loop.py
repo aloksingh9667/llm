@@ -43,9 +43,14 @@ def lr_at(step: int, cfg: TrainConfig) -> float:
     return cfg.min_lr + (cfg.learning_rate - cfg.min_lr) * cosine
 
 
-def lm_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    """Next-token cross-entropy (doc section 20 objective)."""
-    return F.cross_entropy(logits.view(-1, logits.shape[-1]), labels.view(-1))
+def lm_loss(logits: torch.Tensor, labels: torch.Tensor, ignore_index: int = -100) -> torch.Tensor:
+    """Next-token cross-entropy (doc section 20 objective).
+
+    ignore_index=-100 doubles as the SFT prompt mask; plain packed data
+    has no -100 labels so behavior there is unchanged.
+    """
+    return F.cross_entropy(logits.view(-1, logits.shape[-1]), labels.view(-1),
+                           ignore_index=ignore_index)
 
 
 def train_step(model, optimizer, batch, grad_clip: float) -> float:
@@ -62,7 +67,7 @@ def train_step(model, optimizer, batch, grad_clip: float) -> float:
 
 
 def micro_step(model, batch, grad_clip: float, scaler=None, accum_steps: int = 1,
-               amp_dtype: str = "fp16") -> float:
+               amp_dtype: str = "fp16", loss_fn=None) -> float:
     """One accumulation micro-step: forward+backward, no optimizer step.
 
     Loss is divided by accum_steps so that summed micro-gradients equal
@@ -77,7 +82,7 @@ def micro_step(model, batch, grad_clip: float, scaler=None, accum_steps: int = 1
         use_amp = True  # bf16 needs no loss scaler
     with torch.autocast(device_type=device_type, dtype=want, enabled=use_amp):
         logits = model(batch["input_ids"])
-        loss = lm_loss(logits, batch["labels"]) / accum_steps
+        loss = (loss_fn or lm_loss)(logits, batch["labels"]) / accum_steps
     raw = loss.item() * accum_steps
     if scaler is not None and use_amp:
         scaler.scale(loss).backward()
@@ -101,7 +106,8 @@ def accum_step(model, optimizer, grad_clip: float, scaler=None) -> None:
 
 
 @torch.no_grad()
-def eval_loss(model, loader: DataLoader, device: str | None = None) -> float:
+def eval_loss(model, loader: DataLoader, device: str | None = None,
+              ignore_index: int = -100) -> float:
     """Mean LM loss over a loader. Moves batches to the model's device
     by default (eval on GPU was crashing on CPU batches)."""
     model.eval()
@@ -113,7 +119,7 @@ def eval_loss(model, loader: DataLoader, device: str | None = None) -> float:
     total, count = 0.0, 0
     for batch in loader:
         batch = {k: v.to(device) for k, v in batch.items()}
-        total += lm_loss(model(batch["input_ids"]), batch["labels"]).item()
+        total += lm_loss(model(batch["input_ids"]), batch["labels"], ignore_index).item()
         count += 1
     return total / count if count else float("nan")
 

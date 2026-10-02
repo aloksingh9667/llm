@@ -26,21 +26,33 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=None)
     parser.add_argument("--corpus", default=None)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--fast", action="store_true",
+                        help="indexed trainer: identical merges, much faster on large corpora")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     corpus = args.corpus or cfg["corpus_path"]
     out = args.out or cfg["output_path"]
     vocab_size = args.vocab_size or cfg["vocab_size"]
+    specials = cfg.get("special_tokens")
 
     tok = BPETokenizer()
     t0 = time.time()
-    tok.train(
-        corpus,
-        vocab_size=vocab_size,
-        special_tokens=cfg.get("special_tokens"),
-        min_frequency=cfg.get("min_frequency", 1),
-    )
+    if args.fast:
+        from myai.tokenizer.trainer import train_indexed
+
+        vocab, merges = train_indexed(corpus, vocab_size=vocab_size,
+                                      special_tokens=specials,
+                                      min_frequency=cfg.get("min_frequency", 1))
+        tok = BPETokenizer(vocab=vocab, merges=merges,
+                           special_tokens=specials or ["<|endoftext|>"])
+    else:
+        tok.train(
+            corpus,
+            vocab_size=vocab_size,
+            special_tokens=specials,
+            min_frequency=cfg.get("min_frequency", 1),
+        )
     dt = time.time() - t0
     tok.save(out)
 
