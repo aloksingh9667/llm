@@ -56,22 +56,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/tokenizer-train.yaml")
     parser.add_argument("--report", default="reports/tokenizer-3c.json")
+    parser.add_argument("--tokenizer", default=None, help="override tokenizer JSON path")
+    parser.add_argument("--corpus", default=None, help="override corpus text path")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
-    tok_path = Path(cfg["output_path"])
+    tok_path = Path(args.tokenizer or cfg["output_path"])
+    corpus_path = args.corpus or cfg["corpus_path"]
     if not tok_path.exists():
-        print(f"tokenizer missing at {tok_path}, training first...")
-        tok = BPETokenizer().train(
-            cfg["corpus_path"],
-            vocab_size=cfg["vocab_size"],
-            special_tokens=cfg.get("special_tokens"),
-            min_frequency=cfg.get("min_frequency", 1),
-        )
-        tok.save(str(tok_path))
+        raise SystemExit(f"tokenizer missing: {tok_path} — train it first")
     tok = BPETokenizer.load(str(tok_path))
 
-    splits = load_corpus_splits(cfg["corpus_path"])
+    splits = load_corpus_splits(corpus_path)
     report = evaluate_tokenizer(tok, splits)
     report["multilingual_probes"] = {
         name: evaluate_tokenizer(tok, {name: docs})["splits"][name]
@@ -79,9 +75,11 @@ def main() -> None:
     }
     report["tokenizer_path"] = str(tok_path)
     report["freeze_decision"] = (
-        "SEED-DEMO ONLY — 798-char corpus supports 313 merges (vocab 570); "
-        "the 32k freeze needs the 10M+ token FineWeb/Stack mix (Step 3c-target). "
-        "Procedure (metrics + report format) is frozen; vocab is NOT."
+        "FROZEN CANDIDATE — 32k vocab on 10M+ corpus; review metrics table "
+        "before locking configs/tokenizer-32k.yaml."
+        if len(tok) >= 32000 else
+        "SEED-DEMO ONLY — small corpus/vocab; the 32k freeze needs the "
+        "10M+ token FineWeb/Stack mix. Procedure frozen; vocab is NOT."
     )
     rp = Path(args.report)
     rp.parent.mkdir(parents=True, exist_ok=True)
