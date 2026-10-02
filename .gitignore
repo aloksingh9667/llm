@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data (keep folder structure, ignore contents)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/tokenizer_corpus/*
+!data/tokenizer_corpus/.gitkeep
+*.parquet
+*.arrow
+
+# Checkpoints & weights (keep folder, ignore binaries)
+checkpoints/*
+!checkpoints/.gitkeep
+*.pt
+*.bin
+*.safetensors
+
+# Experiment tracking
+wandb/
+runs/
+lightning_logs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Env secrets
+.env

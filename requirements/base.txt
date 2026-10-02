@@ -1,0 +1,15 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.3.1+cpu
+numpy>=1.26
+pyarrow>=15.0
+datasets>=2.19
+tokenizers>=0.19
+sentencepiece>=0.2
+datatrove>=0.3
+polars>=1.0
+pyyaml>=6.0
+tqdm>=4.66
+safetensors>=0.4
+tensorboard>=2.16
+wandb>=0.17

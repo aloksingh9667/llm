@@ -1,0 +1,15 @@
+# CPU-only compose for MyAI base scaffolding (Step 2).
+services:
+  myai-cpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cpu
+    volumes:
+      - ../:/workspace
+      - myai-checkpoints:/workspace/checkpoints
+    working_dir: /workspace
+    shm_size: 2gb
+    command: python scripts/check_env.py
+
+volumes:
+  myai-checkpoints:

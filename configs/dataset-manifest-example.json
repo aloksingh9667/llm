@@ -1,0 +1,10 @@
+{
+  "name": "fineweb-sample-10M",
+  "version": "1.0.0",
+  "source": "https://huggingface.co/datasets/HuggingFaceFW/fineweb",
+  "license": "ODC-By-1.0",
+  "download_date": "YYYY-MM-DD",
+  "allowed_use": "research — verify per dataset card + underlying page terms",
+  "provenance": "FineWeb via Datatrove pipeline; streamed sample, 10M tokens",
+  "filters": ["license_check", "language_id", "quality_filter", "pii_filter", "exact_dedup_sha256"]
+}

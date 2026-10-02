@@ -1,0 +1,13 @@
+# Starting data mixture (experimental, tune by eval per doc section 14)
+mixtures:
+  base:
+    general_text: 0.60
+    code: 0.15
+    math_science: 0.10
+    educational: 0.10
+    other_high_quality: 0.05
+  coding_heavy:
+    general_text: 0.50
+    code: 0.30
+    math_science: 0.10
+    technical_docs: 0.10
