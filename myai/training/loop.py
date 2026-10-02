@@ -23,6 +23,8 @@ class TrainConfig:
     max_steps: int = 1000
     grad_clip: float = 1.0
     batch_size: int = 4
+    accum_steps: int = 1  # micro-batches per optimizer step (GPU memory saver)
+    amp: bool = False  # mixed precision (needs CUDA; auto-disabled on CPU)
     seed: int = 1337
     log_every: int = 10
     eval_every: int = 100
@@ -56,6 +58,41 @@ def train_step(model, optimizer, batch, grad_clip: float) -> float:
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     optimizer.step()
     return loss.item()
+
+
+def micro_step(model, batch, grad_clip: float, scaler=None, accum_steps: int = 1) -> float:
+    """One accumulation micro-step: forward+backward, no optimizer step.
+
+    Loss is divided by accum_steps so that summed micro-gradients equal
+    the full-batch gradient. With AMP, the scaler scales the loss.
+    Returns the *unscaled* micro loss for logging.
+    """
+    model.train()
+    device_type = "cuda" if next(model.parameters()).is_cuda else "cpu"
+    use_amp = scaler is not None and device_type == "cuda"
+    with torch.autocast(device_type=device_type, enabled=use_amp):
+        logits = model(batch["input_ids"])
+        loss = lm_loss(logits, batch["labels"]) / accum_steps
+    raw = loss.item() * accum_steps
+    if scaler is not None and use_amp:
+        scaler.scale(loss).backward()
+    else:
+        loss.backward()
+    return raw
+
+
+def accum_step(model, optimizer, grad_clip: float, scaler=None) -> None:
+    """Apply accumulated gradients: unscale, clip, step, update scaler."""
+    if scaler is not None and next(model.parameters()).is_cuda:
+        if grad_clip > 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        scaler.step(optimizer)
+        scaler.update()
+    else:
+        if grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
 
 
 @torch.no_grad()

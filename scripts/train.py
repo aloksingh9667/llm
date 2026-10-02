@@ -1,15 +1,19 @@
-"""Train MyAI on packed sequences (Steps 13/15).
+"""Train MyAI on packed sequences (Steps 13/15, GPU-ready).
 
-Usage:
+Usage (Kaggle, single GPU):
+    python scripts/train.py --model-config configs/myai-100m.yaml \\
+        --data-dir data/processed/fw10M-32k --batch-size 4 --accum 8 \\
+        --amp --max-steps 5000 --out-dir checkpoints/myai-100m-v01
+
+CPU smoke (this host):
     python scripts/train.py --model-config configs/myai-20m.yaml \\
-        --data-dir data/processed/seed16 --max-steps 60 --out-dir checkpoints/seed20m
+        --data-dir data/processed/seed16 --max-steps 60
 
-Model shape comes from the YAML; vocab_size is set from the data
-manifest (seed tokenizer is smaller than the 32k target). Supports
---resume CKPT for fault tolerance (doc section 26). Writes a JSON
-report with loss history + val perplexity.
+Model shape from YAML; vocab_size from the data manifest. --resume
+continues step/tokens/optimizer. Reports JSON with loss history.
 """
 import argparse
+import itertools
 import json
 import sys
 import time
@@ -26,14 +30,19 @@ from myai.foundation.config import MyAIConfig
 from myai.foundation.model import MyAIModel
 from myai.training.loop import (
     TrainConfig,
+    accum_step,
     build_optimizer,
     eval_loss,
     load_state,
     lr_at,
+    micro_step,
     save_state,
     set_seed,
-    train_step,
 )
+
+
+def _pairs(blob: dict):
+    return list(zip(blob["input_ids"].tolist(), blob["labels"].tolist()))
 
 
 def main() -> None:
@@ -42,10 +51,20 @@ def main() -> None:
     parser.add_argument("--data-dir", default="data/processed/seed16")
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--accum", type=int, default=1)
+    parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--eval-every", type=int, default=0)
+    parser.add_argument("--ckpt-every", type=int, default=0)
     parser.add_argument("--out-dir", default="checkpoints/seed20m")
     parser.add_argument("--report", default="reports/train-seed20m.json")
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--num-workers", type=int, default=2)
     args = parser.parse_args()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_amp = args.amp and device == "cuda"
+    if args.amp and device == "cpu":
+        print("note: --amp ignored (no CUDA here); Kaggle GPU will use it")
 
     model_yaml = yaml.safe_load(Path(args.model_config).read_text(encoding="utf-8"))
     data = Path(args.data_dir)
@@ -53,7 +72,7 @@ def main() -> None:
     t = model_yaml.get("training", {})
 
     cfg = MyAIConfig.from_yaml(args.model_config)
-    cfg.vocab_size = manifest["vocab_size"]  # seed vocab, not the 32k target
+    cfg.vocab_size = manifest["vocab_size"]
     tcfg = TrainConfig(
         learning_rate=t.get("learning_rate", 6e-4),
         weight_decay=t.get("weight_decay", 0.1),
@@ -61,16 +80,23 @@ def main() -> None:
         max_steps=args.max_steps or t.get("max_steps", 1000),
         grad_clip=t.get("grad_clip", 1.0),
         batch_size=args.batch_size,
+        accum_steps=args.accum,
+        amp=use_amp,
         seed=t.get("seed", 1337),
     )
     set_seed(tcfg.seed)
-    model = MyAIModel(cfg)
+    model = MyAIModel(cfg).to(device)
     opt = build_optimizer(model, tcfg)
+    scaler = torch.amp.GradScaler("cuda") if use_amp else None
 
-    train_ds = PackedLMDataset(_pairs(torch.load(data / "train.pt", weights_only=True)))
-    val_ds = PackedLMDataset(_pairs(torch.load(data / "val.pt", weights_only=True)))
-    train_loader = DataLoader(train_ds, batch_size=tcfg.batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=tcfg.batch_size)
+    kw = dict(batch_size=tcfg.batch_size, shuffle=True)
+    if device == "cuda":
+        kw.update(num_workers=args.num_workers, pin_memory=True, persistent_workers=args.num_workers > 0)
+    train_loader = DataLoader(
+        PackedLMDataset(_pairs(torch.load(data / "train.pt", weights_only=True))), **kw
+    )
+    val_loader = DataLoader(PackedLMDataset(_pairs(torch.load(data / "val.pt", weights_only=True))),
+                            batch_size=tcfg.batch_size)
 
     start_step, tokens_seen = 0, 0
     if args.resume:
@@ -80,49 +106,51 @@ def main() -> None:
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    history = []
-    t0 = time.time()
+    history, first_loss, tok0, t0 = [], None, tokens_seen, time.time()
     step = start_step
-    import itertools
-
     cycle = itertools.cycle(train_loader)
-    first_loss = None
     while step < tcfg.max_steps:
-        batch = next(cycle)
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tcfg)
-        loss = train_step(model, opt, batch, tcfg.grad_clip)
-        first_loss = loss if first_loss is None else first_loss
-        tokens_seen += batch["input_ids"].numel()
-        if (step + 1) % 10 == 0:
-            history.append({"step": step + 1, "loss": loss})
-            print(f"step={step + 1} loss={loss:.4f} lr={opt.param_groups[0]['lr']:.2e}", flush=True)
+        opt.zero_grad()
+        micro_loss, micro_toks = 0.0, 0
+        for _ in range(tcfg.accum_steps):
+            batch = {k: v.to(device, non_blocking=True) for k, v in next(cycle).items()}
+            micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler, tcfg.accum_steps)
+            micro_toks += batch["input_ids"].numel()
+        accum_step(model, opt, tcfg.grad_clip, scaler)
         step += 1
+        tokens_seen += micro_toks
+        first_loss = micro_loss if first_loss is None else first_loss
+        if step % 10 == 0:
+            dt = time.time() - t0
+            print(f"step={step} loss={micro_loss:.4f} lr={opt.param_groups[0]['lr']:.2e} "
+                  f"{(tokens_seen - tok0) / dt:.0f} tok/s [{device}]", flush=True)
+            history.append({"step": step, "loss": micro_loss})
+        if args.eval_every and step % args.eval_every == 0:
+            v = eval_loss(model, val_loader)
+            print(f"  eval step={step} loss={v:.4f}", flush=True)
+            history.append({"step": step, "val_loss": v})
+        if args.ckpt_every and step % args.ckpt_every == 0:
+            save_state(str(out / f"step-{step:07d}.pt"), model, opt, step, tokens_seen, tcfg)
     val = eval_loss(model, val_loader)
-    dt = time.time() - t0
     save_state(str(out / "final.pt"), model, opt, step, tokens_seen, tcfg)
     report = {
-        "model": cfg.model_name,
-        "params": model.num_parameters(),
-        "vocab_size": cfg.vocab_size,
-        "steps": tcfg.max_steps - start_step,
-        "first_loss": first_loss,
-        "final_train_loss": history[-1]["loss"] if history else None,
+        "model": cfg.model_name, "params": model.num_parameters(),
+        "vocab_size": cfg.vocab_size, "device": device, "amp": use_amp,
+        "accum_steps": tcfg.accum_steps, "micro_batch": tcfg.batch_size,
+        "steps": tcfg.max_steps - start_step, "first_loss": first_loss,
+        "final_train_loss": history[-1].get("loss"),
         "val_loss": val,
         "val_perplexity": float(torch.exp(torch.tensor(val)).item()) if val == val else None,
-        "tokens_seen": tokens_seen,
-        "seconds": round(dt, 1),
+        "tokens_seen": tokens_seen, "seconds": round(time.time() - t0, 1),
         "history": history,
     }
     rp = Path(args.report)
     rp.parent.mkdir(parents=True, exist_ok=True)
     rp.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"done: {first_loss:.4f} -> {history[-1]['loss']:.4f} train, val={val:.4f} ppl={report['val_perplexity']:.2f}")
+    print(f"done: {first_loss:.4f} -> {report['final_train_loss']:.4f} train, val={val:.4f}")
     print(f"checkpoint -> {out / 'final.pt'}  report -> {rp}")
-
-
-def _pairs(blob: dict) -> list[tuple[list[int], list[int]]]:
-    return list(zip(blob["input_ids"].tolist(), blob["labels"].tolist()))
 
 
 if __name__ == "__main__":

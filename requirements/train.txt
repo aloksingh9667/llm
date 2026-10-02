@@ -1,0 +1,14 @@
+# GPU training deps (Kaggle: pip install -r requirements/train.txt)
+torch>=2.3
+numpy>=1.26
+pyarrow>=15.0
+datasets>=2.19
+tokenizers>=0.19
+sentencepiece>=0.2
+polars>=1.0
+pyyaml>=6.0
+tqdm>=4.66
+safetensors>=0.4
+tensorboard>=2.16
+fsspec>=2024.0
+huggingface_hub>=0.23

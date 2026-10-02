@@ -1,0 +1,17 @@
+# MyAI CUDA training image (Kaggle/self-hosted GPU parity).
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+COPY requirements/train.txt /tmp/train.txt
+RUN pip install --upgrade pip && pip install -r /tmp/train.txt
+COPY . /workspace
+
+CMD ["python", "scripts/check_env.py"]
