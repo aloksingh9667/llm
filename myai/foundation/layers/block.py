@@ -27,12 +27,13 @@ class TransformerBlock(nn.Module):
         max_seq_len: int = 2048,
         theta: float = 10000.0,
         dropout: float = 0.0,
+        use_sdpa: bool = False,
     ):
         super().__init__()
         self.hidden_size = hidden_size
         self.attn_norm = RMSNorm(hidden_size)
         self.attn = CausalSelfAttention(
-            hidden_size, num_heads, num_kv_heads, max_seq_len, theta, dropout
+            hidden_size, num_heads, num_kv_heads, max_seq_len, theta, dropout, use_sdpa
         )
         self.mlp_norm = RMSNorm(hidden_size)
         inter = intermediate_size or 4 * hidden_size

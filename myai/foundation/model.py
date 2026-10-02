@@ -11,6 +11,7 @@ linear-time decoding.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as ckpt
 
 from .config import MyAIConfig
 from .layers.block import TransformerBlock
@@ -34,6 +35,7 @@ class MyAIModel(nn.Module):
                     max_seq_len=config.max_sequence_length,
                     theta=config.rope_theta,
                     dropout=config.dropout,
+                    use_sdpa=config.use_sdpa,
                 )
                 for _ in range(config.num_layers)
             ]
@@ -58,6 +60,10 @@ class MyAIModel(nn.Module):
         std = 0.02
         res_std = std / math.sqrt(2 * max(1, self.config.num_layers))
         torch.nn.init.normal_(self.embedding.weight, mean=0.0, std=std)
+        if not self.config.tie_embeddings:
+            # Untied head must not rely on framework defaults (audit P1):
+            # same scale as the embedding it replaces.
+            torch.nn.init.normal_(self.lm_head.weight, mean=0.0, std=std)
         for blk in self.blocks:
             for proj in (blk.attn.q_proj, blk.attn.k_proj, blk.attn.v_proj, blk.mlp.gate_proj, blk.mlp.up_proj):
                 torch.nn.init.normal_(proj.weight, mean=0.0, std=std)
@@ -70,7 +76,13 @@ class MyAIModel(nn.Module):
             raise ValueError("sequence exceeds max_sequence_length")
         h = self.embedding(input_ids)
         for blk in self.blocks:
-            h = blk(h, start_pos=start_pos)
+            if self.config.grad_ckpt and self.training:
+                # Closure (not extra args): non-reentrant ckpt takes tensors only.
+                h = ckpt.checkpoint(
+                    lambda x, _blk=blk, _pos=start_pos: _blk(x, start_pos=_pos),
+                    h, use_reentrant=False)
+            else:
+                h = blk(h, start_pos=start_pos)
         return self.lm_head(self.final_norm(h))
 
     @torch.no_grad()

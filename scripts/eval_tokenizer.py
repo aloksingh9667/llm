@@ -29,6 +29,13 @@ CODE_HELDOUT = [
     "for batch in dataloader:\n    optimizer.zero_grad()\n    loss.backward()\n    optimizer.step()",
 ]
 
+# Informational probes (audit section 11): fertility recorded, not gated.
+# English-first policy stands; these quantify future multilingual work.
+MULTILINGUAL_PROBES = {
+    "hindi": ["यह एक परीक्षण वाक्य है जो टोकनाइज़र की क्षमता को मापता है"],
+    "hinglish": ["yeh model bahut achha kaam kar raha hai bhai"],
+}
+
 
 def load_corpus_splits(corpus_path: str) -> dict[str, list[str]]:
     prose, code = list(PROSE_HELDOUT), list(CODE_HELDOUT)
@@ -66,6 +73,10 @@ def main() -> None:
 
     splits = load_corpus_splits(cfg["corpus_path"])
     report = evaluate_tokenizer(tok, splits)
+    report["multilingual_probes"] = {
+        name: evaluate_tokenizer(tok, {name: docs})["splits"][name]
+        for name, docs in MULTILINGUAL_PROBES.items()
+    }
     report["tokenizer_path"] = str(tok_path)
     report["freeze_decision"] = (
         "SEED-DEMO ONLY — 798-char corpus supports 313 merges (vocab 570); "

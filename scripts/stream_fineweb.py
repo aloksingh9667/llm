@@ -36,9 +36,18 @@ def main() -> None:
     parser.add_argument("--out", default="data/raw/fineweb-10M.txt")
     parser.add_argument("--char-per-token", type=float, default=4.0,
                         help="stop when chars >= max_tokens * ratio")
+    parser.add_argument("--tokenizer", default=None,
+                        help="tokenizer JSON for EXACT token budgets (audit P0): "
+                             "counts actual tokens per doc, stops at max_tokens")
     args = parser.parse_args()
 
     from datasets import load_dataset
+
+    tok = None
+    if args.tokenizer:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from myai.tokenizer.bpe import BPETokenizer
+        tok = BPETokenizer.load(args.tokenizer)
 
     ds = load_dataset(DATASET, split=args.split, streaming=True)
     out = Path(args.out)
@@ -47,13 +56,16 @@ def main() -> None:
     seen: set[str] = set()
     n_docs = kept = 0
     n_chars = 0
+    actual_tokens = 0
     target_chars = int(args.max_tokens * args.char_per_token)
     t0 = time.time()
     with out.open("w", encoding="utf-8") as f:
         for row in ds:
             if args.max_docs and n_docs >= args.max_docs:
                 break
-            if n_chars >= target_chars:
+            if tok is None and n_chars >= target_chars:
+                break
+            if tok is not None and actual_tokens >= args.max_tokens:
                 break
             n_docs += 1
             text = (row.get("text") or "").strip()
@@ -70,6 +82,8 @@ def main() -> None:
             f.write(text + "\n\n")
             kept += 1
             n_chars += len(text)
+            if tok is not None:
+                actual_tokens += len(tok.encode(text))
             if kept % 2000 == 0:
                 print(f"...{kept} docs {n_chars / 1e6:.1f}M chars", flush=True)
 
@@ -84,6 +98,9 @@ def main() -> None:
         "docs_scanned": n_docs,
         "docs_kept": kept,
         "chars": n_chars,
+        "token_budget": args.max_tokens,
+        "actual_tokens": actual_tokens if tok is not None else None,
+        "counting": "exact-tokenizer" if tok is not None else "char-estimate",
         "seconds": round(time.time() - t0, 1),
     }
     mp = out.with_suffix(".manifest.json")

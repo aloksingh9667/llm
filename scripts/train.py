@@ -33,6 +33,7 @@ from myai.training.loop import (
     accum_step,
     build_optimizer,
     eval_loss,
+    gpu_stats,
     load_state,
     lr_at,
     micro_step,
@@ -58,6 +59,10 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--accum", type=int, default=1)
     parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--amp-dtype", default="fp16", choices=["fp16", "bf16"],
+                        help="bf16 needs no loss scaler; preferred on T4+/A100")
+    parser.add_argument("--sdpa", action="store_true", help="fused attention kernel")
+    parser.add_argument("--grad-ckpt", action="store_true", help="activation checkpointing")
     parser.add_argument("--eval-every", type=int, default=0)
     parser.add_argument("--ckpt-every", type=int, default=0)
     parser.add_argument("--out-dir", default="checkpoints/seed20m")
@@ -81,6 +86,8 @@ def main() -> None:
 
     cfg = MyAIConfig.from_yaml(args.model_config)
     cfg.vocab_size = manifest["vocab_size"]
+    cfg.use_sdpa = args.sdpa
+    cfg.grad_ckpt = args.grad_ckpt
     tcfg = TrainConfig(
         learning_rate=t.get("learning_rate", 6e-4),
         weight_decay=t.get("weight_decay", 0.1),
@@ -95,7 +102,7 @@ def main() -> None:
     set_seed(tcfg.seed)
     model = MyAIModel(cfg).to(device)
     opt = build_optimizer(model, tcfg)
-    scaler = torch.amp.GradScaler("cuda") if use_amp else None
+    scaler = torch.amp.GradScaler("cuda") if (use_amp and args.amp_dtype == "fp16") else None
 
     kw = dict(batch_size=tcfg.batch_size, shuffle=not args.no_shuffle)
     if device == "cuda":
@@ -128,7 +135,8 @@ def main() -> None:
         micro_loss, micro_toks = 0.0, 0
         for _ in range(tcfg.accum_steps):
             batch = {k: v.to(device, non_blocking=True) for k, v in next(cycle).items()}
-            micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler, tcfg.accum_steps)
+            micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler,
+                                     tcfg.accum_steps, args.amp_dtype)
             micro_toks += batch["input_ids"].numel()
         micro_loss /= tcfg.accum_steps  # mean over micro-batches (not the sum)
         accum_step(model, opt, tcfg.grad_clip, scaler)
@@ -138,9 +146,14 @@ def main() -> None:
         first_loss = micro_loss if first_loss is None else first_loss
         if step % 10 == 0:
             dt = time.time() - t0
+            gs = gpu_stats()
+            mem = f" mem={gs.get('gpu_mem_alloc_mb', 0):.0f}MB" if gs else ""
             print(f"step={step} loss={micro_loss:.4f} lr={opt.param_groups[0]['lr']:.2e} "
-                  f"{(tokens_seen - tok0) / dt:.0f} tok/s [{device}]", flush=True)
-            history.append({"step": step, "loss": micro_loss})
+                  f"{(tokens_seen - tok0) / dt:.0f} tok/s [{device}]{mem}", flush=True)
+            row = {"step": step, "loss": micro_loss, **gs}
+            history.append(row)
+            with open(out / "metrics.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
         if args.eval_every and step % args.eval_every == 0:
             v = eval_loss(model, val_loader)
             print(f"  eval step={step} loss={v:.4f}", flush=True)

@@ -1,11 +1,12 @@
 # MyAI-20M — Phase 0 research model (pipeline proof, CPU debug)
+# Dims sized so num_parameters() ~= 20.2M at vocab 32000 tied (audit: name matches size class).
 model_name: MyAI-20M
 vocab_size: 32000
-hidden_size: 256
-num_layers: 6
+hidden_size: 320
+num_layers: 8
 num_heads: 8
 num_kv_heads: 8
-intermediate_size: 688
+intermediate_size: 864
 max_sequence_length: 512
 normalization: rmsnorm
 activation: swiglu

@@ -61,17 +61,21 @@ def train_step(model, optimizer, batch, grad_clip: float) -> float:
     return loss.item()
 
 
-def micro_step(model, batch, grad_clip: float, scaler=None, accum_steps: int = 1) -> float:
+def micro_step(model, batch, grad_clip: float, scaler=None, accum_steps: int = 1,
+               amp_dtype: str = "fp16") -> float:
     """One accumulation micro-step: forward+backward, no optimizer step.
 
     Loss is divided by accum_steps so that summed micro-gradients equal
     the full-batch gradient. With AMP, the scaler scales the loss.
-    Returns the *unscaled* micro loss for logging.
+    fp16 needs a GradScaler; bf16 does not. Returns unscaled micro loss.
     """
     model.train()
+    want = torch.bfloat16 if amp_dtype == "bf16" else torch.float16
     device_type = "cuda" if next(model.parameters()).is_cuda else "cpu"
     use_amp = scaler is not None and device_type == "cuda"
-    with torch.autocast(device_type=device_type, enabled=use_amp):
+    if scaler is None and amp_dtype == "bf16" and device_type == "cuda":
+        use_amp = True  # bf16 needs no loss scaler
+    with torch.autocast(device_type=device_type, dtype=want, enabled=use_amp):
         logits = model(batch["input_ids"])
         loss = lm_loss(logits, batch["labels"]) / accum_steps
     raw = loss.item() * accum_steps
@@ -126,6 +130,22 @@ def build_optimizer(model, cfg: TrainConfig) -> torch.optim.AdamW:
          {"params": no_decay, "weight_decay": 0.0}],
         lr=cfg.learning_rate,
     )
+
+
+def gpu_stats() -> dict:
+    """Allocated/reserved MB + utilization where available; {} on CPU."""
+    if not torch.cuda.is_available():
+        return {}
+    try:
+        dev = torch.cuda.current_device()
+        alloc = torch.cuda.memory_allocated(dev) / 1e6
+        reserved = torch.cuda.memory_reserved(dev) / 1e6
+        util = torch.cuda.utilization(dev)
+        return {"gpu_mem_alloc_mb": round(alloc, 1),
+                "gpu_mem_reserved_mb": round(reserved, 1),
+                "gpu_util_pct": util}
+    except Exception:
+        return {}
 
 
 def set_seed(seed: int) -> None:

@@ -53,6 +53,7 @@ class CausalSelfAttention(nn.Module):
         max_seq_len: int = 2048,
         theta: float = 10000.0,
         dropout: float = 0.0,
+        use_sdpa: bool = False,
     ):
         super().__init__()
         if hidden_size % num_heads != 0:
@@ -72,6 +73,9 @@ class CausalSelfAttention(nn.Module):
         self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.rope = RotaryEmbedding(self.head_dim, max_seq_len, theta)
         self.attn_dropout = dropout
+        # Fast path (audit P1): fused SDPA kernel for training-shaped calls.
+        # Reference math stays the default and the tested correctness path.
+        self.use_sdpa = use_sdpa
 
     def _project(self, x: torch.Tensor):
         B, T, _ = x.shape
@@ -98,6 +102,15 @@ class CausalSelfAttention(nn.Module):
         # angles already encode absolute position), so no re-rotation here.
         k = repeat_kv(k, self.groups)
         v = repeat_kv(v, self.groups)
+
+        if self.use_sdpa and Tq == Tk and start_pos == 0 and not return_weights:
+            # Fused kernel: RoPE already applied above; SDPA replaces only
+            # the score/mask/softmax/weighted-sum math.
+            out = F.scaled_dot_product_attention(
+                q, k, v, is_causal=True,
+                dropout_p=self.attn_dropout if self.training else 0.0,
+            ).transpose(1, 2).reshape(q.shape[0], Tq, self.hidden_size)
+            return self.o_proj(out)
 
         scores = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim)
         allowed = causal_allowed(Tq, Tk, start_pos).to(q.device)
