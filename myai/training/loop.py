@@ -7,6 +7,7 @@ tokens_seen + optimizer/scheduler state + RNG states (doc §26).
 """
 import math
 import random
+import sys
 from dataclasses import dataclass
 
 import torch
@@ -96,11 +97,18 @@ def accum_step(model, optimizer, grad_clip: float, scaler=None) -> None:
 
 
 @torch.no_grad()
-def eval_loss(model, loader: DataLoader) -> float:
-    """Mean LM loss over a loader. Empty loader -> NaN (caller decides)."""
+def eval_loss(model, loader: DataLoader, device: str | None = None) -> float:
+    """Mean LM loss over a loader. Moves batches to the model's device
+    by default (eval on GPU was crashing on CPU batches)."""
     model.eval()
+    if device is None:
+        try:
+            device = str(next(model.parameters()).device)
+        except StopIteration:
+            device = "cpu"
     total, count = 0.0, 0
     for batch in loader:
+        batch = {k: v.to(device) for k, v in batch.items()}
         total += lm_loss(model(batch["input_ids"]), batch["labels"]).item()
         count += 1
     return total / count if count else float("nan")
@@ -125,24 +133,88 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def save_state(path: str, model, optimizer, step: int, tokens_seen: int, cfg: TrainConfig) -> None:
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "config": model.config.__dict__,
-            "step": step,
-            "tokens_seen": tokens_seen,
-            "train_cfg": cfg.__dict__,
-            "rng": torch.get_rng_state(),
-        },
-        path,
-    )
+def _git_commit() -> str | None:
+    try:
+        import subprocess
+
+        return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                              text=True, timeout=10).stdout.strip() or None
+    except Exception:
+        return None
 
 
-def load_state(path: str, model, optimizer=None) -> dict:
+def _env_meta() -> dict:
+    meta = {"python": sys.version.split()[0], "torch": torch.__version__,
+            "cuda_available": torch.cuda.is_available()}
+    if torch.cuda.is_available():
+        try:
+            meta["gpu"] = torch.cuda.get_device_name(0)
+            meta["cuda_version"] = torch.version.cuda
+        except Exception:
+            pass
+    return meta
+
+
+def save_state(path: str, model, optimizer, step: int, tokens_seen: int, cfg: TrainConfig,
+               scaler=None, data_pos: dict | None = None, extra_meta: dict | None = None) -> None:
+    """Full-fidelity checkpoint (audit P0): weights, optimizer, RNG states,
+    AMP scaler, scheduler snapshot (step + config reproduces warmup-cosine),
+    data position, git commit, and environment metadata."""
+    import datetime
+    import random
+
+    payload = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "config": model.config.__dict__,
+        "step": step,
+        "tokens_seen": tokens_seen,
+        "train_cfg": cfg.__dict__,
+        "scheduler": {"kind": "warmup-cosine", "step": step,
+                      "learning_rate": cfg.learning_rate, "min_lr": cfg.min_lr,
+                      "warmup_steps": cfg.warmup_steps, "max_steps": cfg.max_steps},
+        "rng": {"python": random.getstate(), "torch_cpu": torch.get_rng_state()},
+        "git_commit": _git_commit(),
+        "env": _env_meta(),
+        "saved_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    if torch.cuda.is_available():
+        try:
+            payload["rng"]["torch_cuda"] = torch.cuda.get_rng_state_all()
+        except Exception:
+            pass
+    if scaler is not None and hasattr(scaler, "state_dict"):
+        try:
+            payload["scaler"] = scaler.state_dict()
+        except Exception:
+            pass
+    if data_pos:
+        payload["data_pos"] = data_pos
+    if extra_meta:
+        payload["meta"] = extra_meta
+    torch.save(payload, path)
+
+
+def load_state(path: str, model, optimizer=None, scaler=None, restore_rng: bool = True) -> dict:
+    """Load checkpoint; optionally restores optimizer, scaler, and RNG states
+    for exact-resume. Missing keys (old checkpoints) default gracefully."""
+    import random
+
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model"])
     if optimizer is not None and "optimizer" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer"])
+    if scaler is not None and "scaler" in ckpt:
+        try:
+            scaler.load_state_dict(ckpt["scaler"])
+        except Exception:
+            pass
+    if restore_rng and "rng" in ckpt:
+        try:
+            random.setstate(ckpt["rng"]["python"])
+            torch.set_rng_state(ckpt["rng"]["torch_cpu"])
+            if "torch_cuda" in ckpt["rng"] and torch.cuda.is_available():
+                torch.cuda.set_rng_state_all(ckpt["rng"]["torch_cuda"])
+        except Exception:
+            pass
     return ckpt

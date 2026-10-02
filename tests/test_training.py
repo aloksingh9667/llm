@@ -93,6 +93,60 @@ def test_checkpoint_resume_continues(tmp_path):
         assert torch.equal(a, b), "weights must match after resume"
 
 
+def test_eval_loss_explicit_device():
+    """eval_loss must honor an explicit device (the Kaggle cuda crash)."""
+    model = _tiny_model().eval()
+    loader = _overfit_loader()
+    assert eval_loss(model, loader, device="cpu") > 0
+
+
+def test_exact_resume_matches_continuous(tmp_path):
+    """Audit section 37: 1->60 continuous must equal 1->30 + resume + 31->60."""
+    import itertools
+
+    from myai.training.loop import lr_at, set_seed
+
+    torch.use_deterministic_algorithms(True)
+    try:
+        def run(n_steps, ckpt_in=None, ckpt_out=None, seed=7):
+            set_seed(seed)
+            model = _tiny_model(seed=seed)
+            tcfg = TrainConfig(learning_rate=2e-3, warmup_steps=5, max_steps=60)
+            opt = build_optimizer(model, tcfg)
+            start, skip = 0, 0
+            if ckpt_in:
+                meta = load_state(ckpt_in, model, opt)
+                start = meta["step"]
+                # KEY: resume continues the data position; a fresh cycle
+                # would replay batches 0.. and silently diverge (proven by
+                # batch fingerprinting during debugging).
+                skip = meta.get("data_pos", {}).get("batches_consumed", 0)
+            loader = DataLoader(_overfit_loader().dataset, batch_size=4, shuffle=False)
+            cycle = itertools.cycle(loader)
+            for _ in range(skip):
+                next(cycle)
+            last = None
+            for step in range(start, n_steps):
+                for g in opt.param_groups:
+                    g["lr"] = lr_at(step, tcfg)
+                batch = next(cycle)
+                last = train_step(model, opt, batch, grad_clip=1.0)
+            if ckpt_out:
+                save_state(ckpt_out, model, opt, n_steps, n_steps * 64, tcfg,
+                           data_pos={"batches_consumed": n_steps, "shuffle": False})
+            return model, opt, last
+
+        mA, _, lossA = run(60)
+        p = str(tmp_path / "half.pt")
+        run(30, ckpt_out=p)
+        mB, _, lossB = run(60, ckpt_in=p)
+        assert abs(lossA - lossB) < 1e-4, f"{lossA} vs {lossB}"
+        for a, b in zip(mA.parameters(), mB.parameters()):
+            torch.testing.assert_close(a, b, rtol=1e-5, atol=1e-6)
+    finally:
+        torch.use_deterministic_algorithms(False)
+
+
 def test_eval_loss_matches_manual():
     model = _tiny_model().eval()
     loader = _overfit_loader()

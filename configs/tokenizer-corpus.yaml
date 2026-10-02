@@ -23,6 +23,9 @@ output:
   manifest_path: data/tokenizer_corpus/manifest.json
   doc_separator: "\n\n"
   min_doc_chars: 20
+  # Explicit per-document EOS boundary + packing split marker (audit P0).
+  # Must be a registered special token of the BPE tokenizer.
+  eos_text: "<|endoftext|>"
 
 provenance:
   source: "local seed (offline) — FineWeb/Stack streaming lands in 3b"

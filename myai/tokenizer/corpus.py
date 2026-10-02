@@ -45,6 +45,7 @@ def build_tokenizer_corpus(
     doc_separator: str = "\n\n",
     corpus_name: str = "myai-tokenizer-corpus-en-v0.1",
     corpus_version: str = "0.1.0",
+    eos_text: str | None = None,
 ) -> dict:
     """Read, normalize, exact-dedup, write corpus + manifest. Returns stats."""
     seen: set[str] = set()
@@ -86,9 +87,18 @@ def build_tokenizer_corpus(
             f"too_short={too_short}) — check source caps and min_doc_chars"
         )
 
+    # Explicit document boundaries (audit P0): each doc ends with the EOS
+    # marker, which doubles as the split point for downstream packing.
+    # The marker must survive normalization, so it is appended after.
+    boundary = f"\n{eos_text}\n" if eos_text else doc_separator
     corpus_file = Path(corpus_path)
     corpus_file.parent.mkdir(parents=True, exist_ok=True)
-    corpus_file.write_text(doc_separator.join(docs) + ("\n" if docs else ""), encoding="utf-8")
+    body = boundary.join(docs)
+    if eos_text:
+        body += boundary
+    else:
+        body += "\n"
+    corpus_file.write_text(body, encoding="utf-8")
 
     corpus_hash = hashlib.sha256(corpus_file.read_bytes()).hexdigest()
     total_chars = sum(len(d) for d in docs)
@@ -101,6 +111,7 @@ def build_tokenizer_corpus(
         "allowed_use": "research/bootstrap only",
         "provenance": "local seed files, normalized + sha256 exact-dedup",
         "filters": ["unicode_NFKC", "control_strip", "whitespace_collapse", "exact_dedup_sha256"],
+        "eos_text": eos_text,
         "files_read": files_read,
         "docs_kept": len(docs),
         "duplicates_removed": duplicates,

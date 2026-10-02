@@ -75,6 +75,7 @@ def main() -> None:
         doc_separator=out.get("doc_separator", "\n\n"),
         corpus_name=cfg.get("name", "myai-tokenizer-corpus-en-v0.1"),
         corpus_version=cfg.get("version", "0.1.0"),
+        eos_text=out.get("eos_text"),
     )
     print(
         "corpus built: files_read={files_read} docs_kept={docs_kept} "

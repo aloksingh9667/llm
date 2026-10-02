@@ -45,6 +45,11 @@ def _pairs(blob: dict):
     return list(zip(blob["input_ids"].tolist(), blob["labels"].tolist()))
 
 
+def _data_pos(args, batches_consumed: int) -> dict:
+    return {"batches_consumed": batches_consumed, "shuffle": not args.no_shuffle,
+            "micro_batch": args.batch_size, "accum": args.accum}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-config", default="configs/myai-20m.yaml")
@@ -59,6 +64,9 @@ def main() -> None:
     parser.add_argument("--report", default="reports/train-seed20m.json")
     parser.add_argument("--resume", default=None)
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument("--no-shuffle", action="store_true",
+                        help="disable train shuffling: resume is then exactly "
+                             "reproducible from data_pos (recommended for research runs)")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -89,7 +97,7 @@ def main() -> None:
     opt = build_optimizer(model, tcfg)
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
 
-    kw = dict(batch_size=tcfg.batch_size, shuffle=True)
+    kw = dict(batch_size=tcfg.batch_size, shuffle=not args.no_shuffle)
     if device == "cuda":
         kw.update(num_workers=args.num_workers, pin_memory=True, persistent_workers=args.num_workers > 0)
     train_loader = DataLoader(
@@ -99,16 +107,20 @@ def main() -> None:
                             batch_size=tcfg.batch_size)
 
     start_step, tokens_seen = 0, 0
+    batches_consumed = 0
     if args.resume:
         meta = load_state(args.resume, model, opt)
         start_step, tokens_seen = meta["step"], meta.get("tokens_seen", 0)
-        print(f"resumed: step={start_step} tokens={tokens_seen}")
+        batches_consumed = meta.get("data_pos", {}).get("batches_consumed", 0)
+        print(f"resumed: step={start_step} tokens={tokens_seen} batches={batches_consumed}")
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     history, first_loss, tok0, t0 = [], None, tokens_seen, time.time()
     step = start_step
     cycle = itertools.cycle(train_loader)
+    for _ in range(batches_consumed):
+        next(cycle)  # exact only when shuffle is off; else best-effort
     while step < tcfg.max_steps:
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tcfg)
@@ -118,9 +130,11 @@ def main() -> None:
             batch = {k: v.to(device, non_blocking=True) for k, v in next(cycle).items()}
             micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler, tcfg.accum_steps)
             micro_toks += batch["input_ids"].numel()
+        micro_loss /= tcfg.accum_steps  # mean over micro-batches (not the sum)
         accum_step(model, opt, tcfg.grad_clip, scaler)
         step += 1
         tokens_seen += micro_toks
+        batches_consumed += tcfg.accum_steps
         first_loss = micro_loss if first_loss is None else first_loss
         if step % 10 == 0:
             dt = time.time() - t0
@@ -132,9 +146,13 @@ def main() -> None:
             print(f"  eval step={step} loss={v:.4f}", flush=True)
             history.append({"step": step, "val_loss": v})
         if args.ckpt_every and step % args.ckpt_every == 0:
-            save_state(str(out / f"step-{step:07d}.pt"), model, opt, step, tokens_seen, tcfg)
+            save_state(str(out / f"step-{step:07d}.pt"), model, opt, step, tokens_seen, tcfg,
+                       scaler, _data_pos(args, batches_consumed),
+                       {"dataset_manifest": manifest, "data_dir": str(data)})
     val = eval_loss(model, val_loader)
-    save_state(str(out / "final.pt"), model, opt, step, tokens_seen, tcfg)
+    save_state(str(out / "final.pt"), model, opt, step, tokens_seen, tcfg, scaler,
+               _data_pos(args, batches_consumed),
+               {"dataset_manifest": manifest, "data_dir": str(data)})
     report = {
         "model": cfg.model_name, "params": model.num_parameters(),
         "vocab_size": cfg.vocab_size, "device": device, "amp": use_amp,

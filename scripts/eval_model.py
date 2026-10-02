@@ -28,6 +28,8 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data-dir", default="data/processed/seed16")
     parser.add_argument("--report", default="reports/eval-seed20m.json")
+    parser.add_argument("--device", default=None,
+                        help="cuda/cpu; defaults to the model's device")
     args = parser.parse_args()
 
     data = Path(args.data_dir)
@@ -35,13 +37,14 @@ def main() -> None:
     val_loader = DataLoader(val_ds, batch_size=4)
 
     model, meta = MyAIModel.load_checkpoint(args.checkpoint)
-    model.eval()
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device).eval()
     val = eval_loss(model, val_loader)
     ppl = float(torch.exp(torch.tensor(val)).item())
 
     # Sample: greedy continuation of the first val input ids.
-    prompt = val_ds.inputs[:1, :8]
-    gen = model.generate(prompt, max_new_tokens=8)
+    prompt = val_ds.inputs[:1, :8].to(device)
+    gen = model.generate(prompt, max_new_tokens=8).cpu()
     result = {
         "checkpoint": args.checkpoint,
         "step": meta.get("step"),
