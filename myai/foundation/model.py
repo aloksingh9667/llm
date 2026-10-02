@@ -42,6 +42,27 @@ class MyAIModel(nn.Module):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         if config.tie_embeddings:
             self.lm_head.weight = self.embedding.weight
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        """Scaled init (GPT-2 style): small std so initial loss ≈ ln(V).
+
+        Default PyTorch inits are wrong here: nn.Embedding uses N(0,1),
+        which through the *tied* head yields huge logits (loss ~23 for
+        V=60 instead of ln(60)≈4.1) and destabilizes early training.
+        Residual output projections (o_proj, down_proj) get an extra
+        1/sqrt(2N) so residual-stream variance stays O(1) with depth.
+        """
+        import math
+
+        std = 0.02
+        res_std = std / math.sqrt(2 * max(1, self.config.num_layers))
+        torch.nn.init.normal_(self.embedding.weight, mean=0.0, std=std)
+        for blk in self.blocks:
+            for proj in (blk.attn.q_proj, blk.attn.k_proj, blk.attn.v_proj, blk.mlp.gate_proj, blk.mlp.up_proj):
+                torch.nn.init.normal_(proj.weight, mean=0.0, std=std)
+            for proj in (blk.attn.o_proj, blk.mlp.down_proj):
+                torch.nn.init.normal_(proj.weight, mean=0.0, std=res_std)
 
     def forward(self, input_ids: torch.Tensor, start_pos: int = 0) -> torch.Tensor:
         """Training path: (B, T) ids -> (B, T, V) logits."""
