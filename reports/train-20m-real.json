@@ -1,0 +1,17 @@
+{
+  "model": "MyAI-20M",
+  "source": "kaggle kernel aloksingh9182/myai-20m-real v2 (reconstructed from verified log + metrics.jsonl)",
+  "params": 20157760,
+  "vocab_size": 32000,
+  "device": "cuda",
+  "amp": true,
+  "accum_steps": 8,
+  "micro_batch": 4,
+  "seq_len": 512,
+  "steps": 500,
+  "first_loss": 10.026349067687988,
+  "final_train_loss": 5.924178898334503,
+  "val_loss": 5.9933,
+  "val_perplexity": 400.74,
+  "tokens_seen": 8192000
+}
