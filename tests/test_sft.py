@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
 
-from myai.training.sft import IGNORE, build_sft_pair, pack_sft_pairs, sft_loss
+from myai.training.sft import IGNORE, build_sft_pair, has_trainable_tokens, pack_sft_pairs, sft_loss
 
 
 def test_prompt_masked_response_kept():
@@ -34,9 +34,20 @@ def test_loss_ignores_prompt():
 
 def test_packing_keeps_masks_aligned():
     pairs = [build_sft_pair([1, 2], [3], eos_id=0), build_sft_pair([4], [5, 6], eos_id=0)]
-    blocks = pack_sft_pairs(pairs, seq_len=4)
+    blocks, dropped = pack_sft_pairs(pairs, seq_len=4)
+    assert dropped == 0
     assert len(blocks) == 2
     (b0_in, b0_lab), (b1_in, b1_lab) = blocks
     assert b0_in == [1, 2, 3, 0] and b0_lab == [IGNORE, IGNORE, 3, 0]
     for inp, lab in blocks:
         assert len(inp) == len(lab) == 4
+
+
+def test_packing_drops_fully_masked_blocks():
+    # A 512-window landing inside a long prompt is pure IGNORE: CE over it
+    # is NaN, so it must be dropped (EOS is trained, but lives elsewhere).
+    pairs = [build_sft_pair([1, 2, 3, 4, 5, 6], [7], eos_id=0)]
+    blocks, dropped = pack_sft_pairs(pairs, seq_len=5)
+    assert dropped == 1 and blocks == []
+    assert not has_trainable_tokens(torch.tensor([IGNORE] * 5))
+    assert has_trainable_tokens(torch.tensor([IGNORE, IGNORE, 3, IGNORE]))

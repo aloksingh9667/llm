@@ -52,6 +52,7 @@ def main() -> None:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     entries = {}
+    dropped_total = 0
     for split, sdocs in (("train", train_docs), ("val", val_docs)):
         sft_pairs = []
         for d in sdocs:
@@ -59,7 +60,8 @@ def main() -> None:
             p_ids = tok.encode(prompt)
             r_ids = tok.encode(response)
             sft_pairs.append(build_sft_pair(p_ids, r_ids, eos_id))
-        blocks = pack_sft_pairs(sft_pairs, args.seq_len)
+        blocks, dropped = pack_sft_pairs(sft_pairs, args.seq_len)
+        dropped_total += dropped
         if not blocks:
             raise ValueError(f"no {split} blocks — seq_len too large for data?")
         blob_in = torch.tensor([b[0] for b in blocks], dtype=torch.long)
@@ -69,6 +71,7 @@ def main() -> None:
     manifest = {"version": "0.1.0", "pairs_total": len(pairs),
                 "train_pairs": len(train_docs), "val_pairs": len(val_docs),
                 "train_blocks": entries["train"]["rows"], "val_blocks": entries["val"]["rows"],
+                "dropped_all_masked": dropped_total,
                 "seq_len": args.seq_len, "vocab_size": len(tok),
                 "mask": "prompt -100, response+EOS trained"}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

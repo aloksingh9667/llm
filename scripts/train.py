@@ -40,8 +40,7 @@ from myai.training.loop import (
     save_state,
     set_seed,
 )
-from myai.training.sft import sft_loss
-
+from myai.training.sft import has_trainable_tokens, sft_loss
 
 def _pairs(blob: dict):
     return list(zip(blob["input_ids"].tolist(), blob["labels"].tolist()))
@@ -136,6 +135,7 @@ def main() -> None:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     history, first_loss, tok0, t0 = [], None, tokens_seen, time.time()
+    skipped_masked = 0
     step = start_step
     cycle = itertools.cycle(train_loader)
     for _ in range(batches_consumed):
@@ -147,6 +147,9 @@ def main() -> None:
         micro_loss, micro_toks = 0.0, 0
         for _ in range(tcfg.accum_steps):
             batch = {k: v.to(device, non_blocking=True) for k, v in next(cycle).items()}
+            if not has_trainable_tokens(batch["labels"]):
+                skipped_masked += 1
+                continue  # fully-masked batch: CE would be NaN, no signal
             micro_loss += micro_step(model, batch, tcfg.grad_clip, scaler,
                                      tcfg.accum_steps, args.amp_dtype,
                                      sft_loss if args.sft else None)
@@ -189,6 +192,7 @@ def main() -> None:
         "val_loss": val,
         "val_perplexity": float(torch.exp(torch.tensor(val)).item()) if val == val else None,
         "tokens_seen": tokens_seen, "seconds": round(time.time() - t0, 1),
+        "skipped_all_masked": skipped_masked,
         "history": history,
     }
     rp = Path(args.report)
