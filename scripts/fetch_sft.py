@@ -120,6 +120,18 @@ def main() -> None:
 
     fetch = {"oasst1": from_oasst1, "dolly": from_dolly, "seed": from_seed}[args.source]
     pairs = fetch(args.max_pairs)
+    # Exact joint dedup (instruction+output): template duplicates leak across
+    # the train/val hash split and fake low val loss (observed K4 v2: val 0.15).
+    # Near-dup paraphrases remain a v0.2 item (myai.data.near_dedup at scale).
+    seen, unique, dupes = set(), [], 0
+    for p in pairs:
+        h = hashlib.md5((clean(p["instruction"]) + "\n" + clean(p["output"])).encode()).hexdigest()
+        if h in seen:
+            dupes += 1
+            continue
+        seen.add(h)
+        unique.append(p)
+    pairs = unique
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{args.source}.jsonl").write_text(
@@ -131,6 +143,7 @@ def main() -> None:
                 "license": info["license"], "download_date": today(),
                 "allowed_use": "research with attribution per license",
                 "pairs": len(pairs),
+                "exact_dupes_removed": dupes,
                 "sha256": hashlib.sha256((out / f"{args.source}.jsonl").read_bytes()).hexdigest()}
     (out / f"{args.source}.manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
