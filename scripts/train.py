@@ -57,6 +57,8 @@ def main() -> None:
     parser.add_argument("--model-config", default="configs/myai-20m.yaml")
     parser.add_argument("--data-dir", default="data/processed/seed16")
     parser.add_argument("--max-steps", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None,
+                        help="override model-config learning rate (e.g. lower for SFT)")
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--accum", type=int, default=1)
     parser.add_argument("--amp", action="store_true")
@@ -69,6 +71,9 @@ def main() -> None:
     parser.add_argument("--out-dir", default="checkpoints/seed20m")
     parser.add_argument("--report", default="reports/train-seed20m.json")
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--init-from", default=None,
+                        help="load MODEL WEIGHTS ONLY from a checkpoint (e.g. base "
+                             "model for SFT): fresh optimizer/schedule/step")
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--no-shuffle", action="store_true",
                         help="disable train shuffling: resume is then exactly "
@@ -92,7 +97,7 @@ def main() -> None:
     cfg.use_sdpa = args.sdpa
     cfg.grad_ckpt = args.grad_ckpt
     tcfg = TrainConfig(
-        learning_rate=t.get("learning_rate", 6e-4),
+        learning_rate=args.lr or t.get("learning_rate", 6e-4),
         weight_decay=t.get("weight_decay", 0.1),
         warmup_steps=t.get("warmup_steps", 100),
         max_steps=args.max_steps or t.get("max_steps", 1000),
@@ -118,6 +123,10 @@ def main() -> None:
 
     start_step, tokens_seen = 0, 0
     batches_consumed = 0
+    if args.init_from:
+        base, _ = MyAIModel.load_checkpoint(args.init_from)
+        model.load_state_dict(base.state_dict())
+        print(f"init-from weights: {args.init_from} (fresh optimizer/schedule)")
     if args.resume:
         meta = load_state(args.resume, model, opt)
         start_step, tokens_seen = meta["step"], meta.get("tokens_seen", 0)

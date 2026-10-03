@@ -147,6 +147,22 @@ def test_exact_resume_matches_continuous(tmp_path):
         torch.use_deterministic_algorithms(False)
 
 
+def test_init_from_loads_weights_only(tmp_path):
+    """--init-from semantics: weights transfer, optimizer stays fresh."""
+    from myai.foundation.model import MyAIModel
+
+    torch.manual_seed(0)
+    src = _tiny_model(seed=0)
+    tcfg = TrainConfig(learning_rate=1e-3)
+    opt = build_optimizer(src, tcfg)
+    p = str(tmp_path / "base.pt")
+    save_state(p, src, opt, step=10, tokens_seen=100, cfg=tcfg)
+    dst, meta = MyAIModel.load_checkpoint(p)
+    for a, b in zip(src.parameters(), dst.parameters()):
+        assert torch.equal(a, b)
+    assert meta["step"] == 10  # metadata travels; caller resets schedule
+
+
 def test_eval_loss_matches_manual():
     model = _tiny_model().eval()
     loader = _overfit_loader()
