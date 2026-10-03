@@ -30,6 +30,8 @@ def main() -> None:
     parser.add_argument("--eval-set", default="data/eval/sft-v01.json")
     parser.add_argument("--report", default="reports/sft-eval.json")
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--temperature", type=float, default=0.0,
+                        help=">0 samples (diverse answers), 0 = greedy (regression)")
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
@@ -44,7 +46,8 @@ def main() -> None:
         prompt, _ = format_pair(item)
         ids = torch.tensor([tok.encode(prompt)], dtype=torch.long).to(device)
         with torch.no_grad():
-            gen = model.generate(ids, max_new_tokens=args.max_new_tokens)
+            gen = model.generate(ids, max_new_tokens=args.max_new_tokens,
+                                 temperature=args.temperature)
         new_ids = gen[0, ids.shape[1]:].tolist()
         results.append({"instruction": item["instruction"],
                         "reference": item["output"],
@@ -54,6 +57,7 @@ def main() -> None:
         print("---")
     report = {"eval_set": args.eval_set, "eval_version": spec["version"],
               "checkpoint": args.checkpoint, "step": meta.get("step"),
+              "temperature": args.temperature,
               "results": results}
     rp = Path(args.report)
     rp.parent.mkdir(parents=True, exist_ok=True)
