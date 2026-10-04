@@ -39,6 +39,10 @@ def main() -> None:
     parser.add_argument("--tokenizer", default=None,
                         help="tokenizer JSON for EXACT token budgets (audit P0): "
                              "counts actual tokens per doc, stops at max_tokens")
+    parser.add_argument("--timeout-min", type=float, default=None,
+                        help="graceful stop after N minutes (partial corpus + "
+                             "truncated manifest beats a 12h cell timeout)")
+    parser.add_argument("--progress-every", type=int, default=2000)
     args = parser.parse_args()
 
     from datasets import load_dataset
@@ -57,10 +61,15 @@ def main() -> None:
     n_docs = kept = 0
     n_chars = 0
     actual_tokens = 0
+    truncated = None
     target_chars = int(args.max_tokens * args.char_per_token)
     t0 = time.time()
+    deadline = t0 + args.timeout_min * 60 if args.timeout_min else None
     with out.open("w", encoding="utf-8") as f:
         for row in ds:
+            if deadline and time.time() > deadline:
+                truncated = f"timeout-min={args.timeout_min}"
+                break
             if args.max_docs and n_docs >= args.max_docs:
                 break
             if tok is None and n_chars >= target_chars:
@@ -84,8 +93,10 @@ def main() -> None:
             n_chars += len(text)
             if tok is not None:
                 actual_tokens += len(tok.encode(text))
-            if kept % 2000 == 0:
-                print(f"...{kept} docs {n_chars / 1e6:.1f}M chars", flush=True)
+            if kept % args.progress_every == 0:
+                dt = time.time() - t0
+                print(f"...{kept} docs {n_chars / 1e6:.1f}M chars "
+                      f"({kept / max(dt, 1):.0f} docs/s)", flush=True)
 
     manifest = {
         "name": out.stem,
@@ -101,6 +112,7 @@ def main() -> None:
         "token_budget": args.max_tokens,
         "actual_tokens": actual_tokens if tok is not None else None,
         "counting": "exact-tokenizer" if tok is not None else "char-estimate",
+        "truncated": truncated,
         "seconds": round(time.time() - t0, 1),
     }
     mp = out.with_suffix(".manifest.json")
