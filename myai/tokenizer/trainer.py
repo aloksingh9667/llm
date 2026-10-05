@@ -27,8 +27,10 @@ class _MaxPair(tuple):
 
 def train_indexed(corpus_path: str, vocab_size: int,
                   special_tokens: list[str] | None = None,
-                  min_frequency: int = 1) -> tuple[list[bytes], list[tuple[bytes, bytes]]]:
+                  min_frequency: int = 1,
+                  progress_every: int = 2000) -> tuple[list[bytes], list[tuple[bytes, bytes]]]:
     """Return (vocab, merges) identical to the reference trainer."""
+    import time
     from pathlib import Path
 
     specials = list(special_tokens) if special_tokens is not None else list(DEFAULT_SPECIAL_TOKENS)
@@ -66,14 +68,20 @@ def train_indexed(corpus_path: str, vocab_size: int,
             vocab.append(b)
     merges: list[tuple[bytes, bytes]] = []
     num_merges = max(0, vocab_size - len(vocab))
+    t0 = time.time()
 
-    for _ in range(num_merges):
+    for done in range(num_merges):
         while heap:
             negc, _, pair = heapq.heappop(heap)
             if pair_count.get(pair, 0) == -negc and -negc > 0:
                 break
         else:
             break
+        if progress_every and (done + 1) % progress_every == 0:
+            dt = time.time() - t0
+            print(f"...{done + 1}/{num_merges} merges, "
+                  f"{len(pair_count)} live pairs ({(done + 1) / max(dt, 1e-9):.0f}/s)",
+                  flush=True)
         a, b = pair
         new_token = a + b
         merges.append(pair)

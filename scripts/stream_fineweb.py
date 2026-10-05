@@ -26,10 +26,36 @@ DATASET = "HuggingFaceFW/fineweb"
 LICENSE = "ODC-By-1.0"
 
 
+def windowed(rows, skip_docs: int = 0, max_docs: int | None = None):
+    """Yield stream rows in the deterministic window [skip, skip+max).
+
+    Pure iterator logic (unit-tested offline): streaming order from HF is
+    deterministic for a fixed dataset version, so windows partition the
+    corpus without overlap. skip<0 or max_docs<0 is rejected.
+    """
+    if skip_docs < 0:
+        raise ValueError("skip_docs must be >= 0")
+    if max_docs is not None and max_docs < 0:
+        raise ValueError("max_docs must be >= 0 or None")
+    n = 0
+    for row in rows:
+        if n < skip_docs:
+            n += 1
+            continue
+        if max_docs is not None and (n - skip_docs) >= max_docs:
+            break
+        n += 1
+        yield row
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-tokens", type=int, default=10_000_000)
-    parser.add_argument("--max-docs", type=int, default=None)
+    parser.add_argument("--max-docs", type=int, default=None,
+                        help="process at most this many rows after --skip-docs")
+    parser.add_argument("--skip-docs", type=int, default=0,
+                        help="skip this many stream rows first (deterministic "
+                             "windows partition the corpus without overlap)")
     parser.add_argument("--min-chars", type=int, default=200)
     parser.add_argument("--lang", default="en")
     parser.add_argument("--split", default="train")
@@ -66,11 +92,9 @@ def main() -> None:
     t0 = time.time()
     deadline = t0 + args.timeout_min * 60 if args.timeout_min else None
     with out.open("w", encoding="utf-8") as f:
-        for row in ds:
+        for row in windowed(ds, args.skip_docs, args.max_docs):
             if deadline and time.time() > deadline:
                 truncated = f"timeout-min={args.timeout_min}"
-                break
-            if args.max_docs and n_docs >= args.max_docs:
                 break
             if tok is None and n_chars >= target_chars:
                 break
@@ -106,7 +130,8 @@ def main() -> None:
         "allowed_use": "research — verify per dataset card + underlying page terms",
         "provenance": f"streamed sample, ~{args.max_tokens} token budget",
         "filters": ["min_chars", "language", "language_score>=0.5", "exact_dedup_sha256"],
-        "docs_scanned": n_docs,
+        "docs_scanned": n_docs + args.skip_docs,
+        "window": {"skip_docs": args.skip_docs, "max_docs": args.max_docs},
         "docs_kept": kept,
         "chars": n_chars,
         "token_budget": args.max_tokens,

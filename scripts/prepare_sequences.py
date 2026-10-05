@@ -54,12 +54,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/data-pack.yaml")
     parser.add_argument("--rows-per-shard", type=int, default=4096)
+    parser.add_argument("--corpus-manifest", default="data/tokenizer_corpus/manifest.json",
+                        help="corpus manifest carrying eos_text (per-half manifests supported)")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     tok = BPETokenizer.load(cfg["tokenizer_path"])
     corpus_manifest = {}
-    cm = Path("data/tokenizer_corpus/manifest.json")
+    cm = Path(args.corpus_manifest)
     if cm.exists():
         corpus_manifest = json.loads(cm.read_text(encoding="utf-8"))
     eos_text = corpus_manifest.get("eos_text")

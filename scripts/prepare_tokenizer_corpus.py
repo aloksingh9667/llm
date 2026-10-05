@@ -51,6 +51,11 @@ def ensure_seed(raw_dir: Path) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/tokenizer-corpus.yaml")
+    parser.add_argument("--raw-dir", default=None,
+                        help="override: single source dir (replaces config sources)")
+    parser.add_argument("--corpus", default=None, help="override output corpus path")
+    parser.add_argument("--manifest", default=None, help="override output manifest path")
+    parser.add_argument("--name", default=None, help="override corpus name")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -66,14 +71,25 @@ def main() -> None:
         print(f"seeded {seeded} files into data/raw (offline bootstrap)")
 
     out = cfg.get("output", {})
+    sources = cfg.get("sources", [])
+    if args.raw_dir:
+        # Halves mode: exactly one file in its own dir (no cross-half mixing).
+        sources = [{"path": args.raw_dir, "max_files": 10,
+                    "max_bytes_per_file": 1 << 31,
+                    "license": "ODC-By-1.0-fineweb"}]
+    else:
+        seeded = ensure_seed(Path("data/raw"))
+        if seeded:
+            print(f"seeded {seeded} files into data/raw (offline bootstrap)")
+
     stats = build_tokenizer_corpus(
-        source_dirs=cfg.get("sources", []),
-        corpus_path=out.get("corpus_path", "data/tokenizer_corpus/train.txt"),
-        manifest_path=out.get("manifest_path", "data/tokenizer_corpus/manifest.json"),
+        source_dirs=sources,
+        corpus_path=args.corpus or out.get("corpus_path", "data/tokenizer_corpus/train.txt"),
+        manifest_path=args.manifest or out.get("manifest_path", "data/tokenizer_corpus/manifest.json"),
         norm_kwargs=norm_kwargs,
         min_doc_chars=out.get("min_doc_chars", 20),
         doc_separator=out.get("doc_separator", "\n\n"),
-        corpus_name=cfg.get("name", "myai-tokenizer-corpus-en-v0.1"),
+        corpus_name=args.name or cfg.get("name", "myai-tokenizer-corpus-en-v0.1"),
         corpus_version=cfg.get("version", "0.1.0"),
         eos_text=out.get("eos_text"),
     )

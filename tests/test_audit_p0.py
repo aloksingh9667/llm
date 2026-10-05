@@ -10,6 +10,20 @@ from myai.foundation.config import MyAIConfig
 from myai.foundation.model import MyAIModel
 
 
+def test_stream_windows_partition_without_overlap():
+    from scripts.stream_fineweb import windowed
+
+    import pytest
+
+    rows = [{"id": i} for i in range(100)]
+    assert [r["id"] for r in windowed(rows, 0, 30)] == list(range(30))
+    assert [r["id"] for r in windowed(rows, 30, 30)] == list(range(30, 60))
+    assert [r["id"] for r in windowed(rows, 90, 30)] == list(range(90, 100))
+    assert list(windowed(rows, 200, 10)) == []
+    with pytest.raises(ValueError):
+        list(windowed(rows, -1, 10))
+
+
 def test_config_validation_catches_bad_dims():
     good = MyAIConfig()
     good.validate()
