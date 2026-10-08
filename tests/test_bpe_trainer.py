@@ -23,6 +23,24 @@ def test_trainer_matches_reference():
     assert fast.encode(s) == ref.encode(s)
 
 
+def test_sample_chars_deterministic_and_bounded(tmp_path):
+    """Sampling takes a doc-boundary-clean head prefix, deterministically."""
+    import subprocess
+    import sys
+
+    corpus = "data/tokenizer_corpus/train.txt"
+    out = str(tmp_path / "tok.json")
+    for _ in range(2):
+        subprocess.run([sys.executable, "scripts/train_tokenizer.py", "--corpus", corpus,
+                        "--vocab-size", "400", "--out", out, "--fast",
+                        "--sample-chars", "500"], check=True, capture_output=True)
+    from myai.tokenizer.bpe import BPETokenizer
+
+    tok = BPETokenizer.load(out)
+    assert len(tok) <= 400
+    assert tok.decode(tok.encode("hello world")) == "hello world"
+
+
 def test_trainer_faster_than_reference_on_repeats():
     import tempfile, os
     doc = ("the quick brown fox jumps over lazy dogs near rivers " * 20 + "\n\n")

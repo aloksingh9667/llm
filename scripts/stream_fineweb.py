@@ -22,6 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from myai.utils.env import load_dotenv
+
+load_dotenv()  # local .env (gitignored) -> HF_TOKEN; Kaggle uses Secrets instead
+
 DATASET = "HuggingFaceFW/fineweb"
 LICENSE = "ODC-By-1.0"
 
