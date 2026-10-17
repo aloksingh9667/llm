@@ -76,8 +76,11 @@ def main() -> None:
     seq_len = cfg["seq_len"]
     for split, sdocs in (("train", train_docs), ("val", val_docs)):
         ids: list[int] = []
-        for doc in sdocs:
+        for i, doc in enumerate(sdocs):
             ids.extend(tok.encode(doc + (eos_text or "")))
+            if (i + 1) % 5000 == 0:
+                print(f"...{split} encode {i + 1}/{len(sdocs)} docs "
+                      f"({len(ids) / 1e6:.1f}M tokens)", flush=True)
         pairs = pack_tokens(ids, seq_len)
         if not pairs:
             raise ValueError(f"no {split} sequences — corpus too small for seq_len={seq_len}?")

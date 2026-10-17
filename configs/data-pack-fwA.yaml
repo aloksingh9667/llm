@@ -1,0 +1,6 @@
+version: "1.0.0"
+corpus_path: data/tokenizer_corpus/train-A.txt
+tokenizer_path: data/tokenizer_corpus/tokenizer-32k.json
+output_dir: data/processed/fwA-32k
+seq_len: 512
+val_ratio: 0.01

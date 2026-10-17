@@ -74,6 +74,9 @@ def main() -> None:
                         help="load MODEL WEIGHTS ONLY from a checkpoint (e.g. base "
                              "model for SFT): fresh optimizer/schedule/step")
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument("--stop-step", type=int, default=None,
+                        help="stop early at this optimizer step (legged runs on "
+                             "time-limited infra); --max-steps stays the schedule target")
     parser.add_argument("--no-shuffle", action="store_true",
                         help="disable train shuffling: resume is then exactly "
                              "reproducible from data_pos (recommended for research runs)")
@@ -140,7 +143,11 @@ def main() -> None:
     cycle = itertools.cycle(train_loader)
     for _ in range(batches_consumed):
         next(cycle)  # exact only when shuffle is off; else best-effort
-    while step < tcfg.max_steps:
+    stop_step = args.stop_step if args.stop_step is not None else tcfg.max_steps
+    if not (start_step < stop_step <= tcfg.max_steps):
+        raise ValueError(f"stop-step {stop_step} must be in (start {start_step}, "
+                         f"max-steps {tcfg.max_steps}]")
+    while step < stop_step:
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tcfg)
         opt.zero_grad()
@@ -187,7 +194,8 @@ def main() -> None:
         "model": cfg.model_name, "params": model.num_parameters(),
         "vocab_size": cfg.vocab_size, "device": device, "amp": use_amp,
         "accum_steps": tcfg.accum_steps, "micro_batch": tcfg.batch_size,
-        "steps": tcfg.max_steps - start_step, "first_loss": first_loss,
+        "steps": step - start_step, "first_loss": first_loss,
+        "max_steps": tcfg.max_steps, "stop_step": stop_step,
         "final_train_loss": final_train_loss,
         "val_loss": val,
         "val_perplexity": float(torch.exp(torch.tensor(val)).item()) if val == val else None,

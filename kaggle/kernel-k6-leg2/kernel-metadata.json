@@ -1,0 +1,14 @@
+{
+  "id": "aloksingh9182/myai-train-leg2",
+  "title": "MyAI 100M Train Leg2",
+  "code_file": "MyAI_100M_Leg2.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["aloksingh9182/myai-fwab-32k"],
+  "kernel_sources": ["aloksingh9182/myai-train-leg1"],
+  "competition_sources": [],
+  "model_sources": []
+}
