@@ -1,0 +1,14 @@
+{
+  "id": "aloksingh9182/myai-chain-watcher",
+  "title": "MyAI Chain Watcher",
+  "code_file": "MyAI_Chain_Watcher.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["aloksingh9182/myai-kaggle-creds"],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
