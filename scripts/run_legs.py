@@ -185,6 +185,29 @@ def build_leg_dir(leg: int, resume_ref: str, data_note: str) -> tuple[Path, dict
     return out_d, {"leg": leg, "stop_step": stop, "meta": meta}
 
 
+QUEUED_BUMP_S = 45 * 60      # leg pinned QUEUED longer than this -> version-bump re-push
+STUCK_RUNNING_S = 12 * 3600  # leg RUNNING way past a normal leg (~3.2h) -> bump re-push
+MAX_BUMPS_PER_LEG = 8        # cap watchdog interventions per leg
+
+
+def push_with_retry(leg_dir: Path, tag: str, retry_sleep: int, suffix: str = "") -> None:
+    """kernels push with the relay's standard quota/network retry policy."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            run_kaggle("kernels", "push", "-p", str(leg_dir))
+            print(f"[{tag}] pushed{suffix}", flush=True)
+            return
+        except Exception as e:
+            msg = str(e)[-400:]
+            print(f"[{tag}] push failed: {msg}", flush=True)
+            if "quota" in msg.lower() or "403" in msg or "429" in msg:
+                print(f"[{tag}] quota exhausted — sleeping {retry_sleep // 3600}h, "
+                      "retrying (relay does not stop)", flush=True)
+            time.sleep(retry_sleep if attempt > 1 else 60)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-leg", type=int, required=True)
@@ -198,6 +221,7 @@ def main() -> None:
 
     prev_ref = None
     leg = args.start_leg
+    bump_count: dict = {}  # cumulative watchdog interventions per leg (survive re-push cycles)
     if leg > 1:
         prev_ref = leg_kernel_ref(leg - 1)
         print(f"relay: waiting for {prev_ref} (leg {leg - 1}) to complete first", flush=True)
@@ -221,33 +245,58 @@ def main() -> None:
         eff_resume = prev_ref or (f"{OWNER}/myai-100m-base" if leg == 1 else None)
         leg_dir, info = build_leg_dir(leg, eff_resume, data_note)
         run_id = f"k6-train-leg{leg}"
-        attempts = 0
-        while True:
-            attempts += 1
-            try:
-                run_kaggle("kernels", "push", "-p", str(leg_dir))
-                print(f"[leg{leg}] pushed (stop {stop:,}) attempt {attempts}", flush=True)
-                break
-            except Exception as e:
-                msg = str(e)[-400:]
-                print(f"[leg{leg}] push failed: {msg}", flush=True)
-                if "quota" in msg.lower() or "403" in msg or "429" in msg:
-                    print(f"[leg{leg}] quota exhausted — sleeping {args.retry_sleep // 3600}h, "
-                          "retrying (relay does not stop)", flush=True)
-                time.sleep(args.retry_sleep if attempts > 1 else 60)
-        log_state({f"leg{leg}": {"status": "RUNNING", "stop_step": stop, "pushed": attempts >= 1}})
+        push_with_retry(leg_dir, f"leg{leg}", args.retry_sleep, suffix=f" (stop {stop:,})")
+        log_state({f"leg{leg}": {"status": "RUNNING", "stop_step": stop}})
         neon_log(run_id, "training", config={"resume": eff_resume, "stop_step": stop,
                                              "max_steps": TARGET_STEPS, "dataset": DATASET})
 
+        # ---- watch the leg: complete / fail / queue-starvation watchdog ----
+        queued_since = None
+        running_since = time.time()
         while True:
+            held = bump_count.get(leg, 0)
             s = status(leg_kernel_ref(leg))
+            now = time.time()
             if s == "COMPLETE":
                 print(f"[leg{leg}] COMPLETE", flush=True)
                 break
             if s in ("ERROR", "CANCEL_ACKNOWLEDGED", "CANCEL_INITIATED"):
-                print(f"[leg{leg}] {s} — re-pushing same leg (deterministic resume)", flush=True)
-                neon_log(run_id, f"retry-after-{s}", config={"attempts": attempts})
-                break
+                if held >= MAX_BUMPS_PER_LEG:
+                    raise SystemExit(f"leg {leg} ended in {s} after {held} total bumps "
+                                     "— inspect logs before resuming")
+                bump_count[leg] = held + 1
+                print(f"[leg{leg}] {s} — re-pushing same leg "
+                      f"(deterministic resume, bump {held + 1}/{MAX_BUMPS_PER_LEG})", flush=True)
+                neon_log(run_id, f"retry-after-{s}", config={"bump": held + 1})
+                break  # outer loop re-pushes this leg
+            if s == "QUEUED":
+                if queued_since is None:
+                    queued_since = now
+                elif now - queued_since > QUEUED_BUMP_S and held < MAX_BUMPS_PER_LEG:
+                    bump_count[leg] = held + 1
+                    mins = int((now - queued_since) / 60)
+                    print(f"[leg{leg}] QUEUED {mins}min — version-bump re-push "
+                          f"{held + 1}/{MAX_BUMPS_PER_LEG}", flush=True)
+                    neon_log(run_id, f"queued-bump-{held + 1}",
+                             config={"queued_minutes": mins, "stop_step": stop})
+                    push_with_retry(leg_dir, f"leg{leg}", args.retry_sleep,
+                                    suffix=f" (queue-bump {held + 1})")
+                    log_state({f"leg{leg}": {"status": "QUEUED-BUMPED",
+                                             "stop_step": stop, "bumps": held + 1}})
+                    queued_since = time.time()
+                    running_since = time.time()  # bumped version restarts both watches
+            else:  # RUNNING or other transient — reset queue timer, check stuck-run
+                queued_since = None
+                if s == "RUNNING" and held < MAX_BUMPS_PER_LEG and now - running_since > STUCK_RUNNING_S:
+                    bump_count[leg] = held + 1
+                    hrs = int((now - running_since) / 3600)
+                    print(f"[leg{leg}] RUNNING {hrs}h (far past a normal leg) — "
+                          f"version-bump re-push {held + 1}/{MAX_BUMPS_PER_LEG} "
+                          "(check UI: an old stuck version may need manual cancel)", flush=True)
+                    neon_log(run_id, f"stuck-running-bump-{held + 1}", config={"hours": hrs})
+                    push_with_retry(leg_dir, f"leg{leg}", args.retry_sleep,
+                                    suffix=f" (stuck-bump {held + 1})")
+                    running_since = time.time()
             time.sleep(args.poll)
 
         if status(leg_kernel_ref(leg)) != "COMPLETE":
