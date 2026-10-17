@@ -12,6 +12,10 @@ venv/
 # Data (keep folder structure, ignore contents)
 data/raw/*
 !data/raw/.gitkeep
+data/rawA/*
+data/rawB/*
+!data/rawA/.gitkeep
+!data/rawB/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
 data/tokenizer_corpus/*
