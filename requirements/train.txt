@@ -12,3 +12,4 @@ safetensors>=0.4
 tensorboard>=2.16
 fsspec>=2024.0
 huggingface_hub>=0.23
+kaggle>=2.2.0  # new CLI (kagglesdk): kernels push + refresh-token access-token minting in-leg
