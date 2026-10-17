@@ -54,10 +54,23 @@ def run_kaggle(*args: str, cwd: Path | None = None) -> str:
     return out
 
 
-def status(ref: str) -> str:
-    out = run_kaggle("kernels", "status", ref)
-    m = re.search(r'"KernelWorkerStatus\.(\w+)"', out)
-    return m.group(1) if m else "UNKNOWN"
+def status(ref: str, retries: int = 5, delay: int = 60) -> str:
+    """Status with retry-on-transient-network (DNS/timeouts must not kill the relay)."""
+    for attempt in range(retries):
+        try:
+            out = run_kaggle("kernels", "status", ref)
+            m = re.search(r'"KernelWorkerStatus\.(\w+)"', out)
+            return m.group(1) if m else "UNKNOWN"
+        except RuntimeError as e:
+            msg = str(e)[-300:]
+            transient = any(k in msg for k in ("NameResolutionError", "ConnectionError",
+                                               "Max retries exceeded", "timed out"))
+            if attempt < retries - 1 and transient:
+                print(f"[net] status retry {attempt + 1}/{retries} for {ref}: {msg[:120]}",
+                      flush=True)
+                time.sleep(delay)
+            else:
+                raise
 
 
 def log_state(update: dict) -> None:
