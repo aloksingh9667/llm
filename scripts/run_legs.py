@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "reports" / "leg-relay.json"
 DATASET = "aloksingh9182/myai-fwab-32k"
+CREDS_DATASET = "aloksingh9182/myai-kaggle-creds"  # private: kaggle.json only
 OWNER = "aloksingh9182"
 KERNEL_PREFIX = "myai-100m-train-leg"
 MOUNT = "/kaggle/input/myai-fwab-32k"
@@ -99,7 +100,8 @@ def build_leg_dir(leg: int, resume_ref: str, data_note: str) -> tuple[Path, dict
                 f"# MyAI 100M Train — Leg {leg} (GPU)\n",
                 f"Resume from {resume_ref} (current checkpoint). One logical cosine run "
                 f"to {TARGET_STEPS:,} steps (~2B tokens on the {data_note}); this leg "
-                f"stops at step {stop:,}. Exact resume: RNG/optimizer/scaler/data_pos."]},
+                f"stops at step {stop:,}. Exact resume: RNG/optimizer/scaler/data_pos. "
+                "On completion this kernel pushes the next leg itself (no terminal needed)."]},
             {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": [
                 "!git clone https://github.com/aloksingh9667/llm.git myai 2>&1 | tail -1\n",
                 "%cd /kaggle/working/myai\n",
@@ -127,7 +129,23 @@ def build_leg_dir(leg: int, resume_ref: str, data_note: str) -> tuple[Path, dict
                 f"!test -f /kaggle/working/ckpts-leg{leg}/final.pt && echo LEG{leg}_OK\n",
                 f"!python -c \"import json; r=json.load(open('/kaggle/working/train-leg{leg}.json')); "
                 "[print(k, r.get(k)) for k in ('steps','first_loss','final_train_loss',"
-                "'val_loss','tokens_seen')]\""]},
+                "'val_loss','tokens_seen')]\"\n",
+                "import os, glob, shutil, pathlib\n",
+                "cands = glob.glob('/kaggle/input/**/kaggle.json', recursive=True)\n",
+                "if cands:\n",
+                "    kx = pathlib.Path.home() / '.kaggle'\n",
+                "    kx.mkdir(exist_ok=True)\n",
+                "    shutil.copy(cands[0], kx / 'kaggle.json')\n",
+                "    os.chmod(kx / 'kaggle.json', 0o600)\n",
+                "    print('kaggle.json mounted:', cands[0])\n",
+                "try:  # secret fallback for kaggle creds\n",
+                "    from kaggle_secrets import UserSecretsClient\n",
+                "    os.environ['KAGGLE_KEY'] = UserSecretsClient().get_secret('KAGGLE_KEY')\n",
+                "    os.environ.setdefault('KAGGLE_USERNAME', 'aloksingh9182')\n",
+                "    print('KAGGLE_KEY secret attached')\n",
+                "except Exception as e:\n",
+                "    print(f'no KAGGLE_KEY secret ({type(e).__name__}) — relying on kaggle.json mount')\n",
+                f"!python scripts/push_next_leg.py --leg {leg} --creds-dataset {CREDS_DATASET}\n"]},
         ],
         "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python",
                                      "name": "python3"},
@@ -145,7 +163,7 @@ def build_leg_dir(leg: int, resume_ref: str, data_note: str) -> tuple[Path, dict
         "is_private": True,
         "enable_gpu": True,
         "enable_internet": True,
-        "dataset_sources": [DATASET],
+        "dataset_sources": [DATASET, CREDS_DATASET],
         "kernel_sources": [resume_ref] if resume_ref else [],
         "competition_sources": [],
         "model_sources": [],
