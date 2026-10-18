@@ -33,7 +33,13 @@ RETRY_SLEEP_S = 3 * 3600
 
 
 def stop_for(leg: int) -> int:
-    return min(START_STEP + PER_LEG * leg, TARGET_STEPS)
+    """End step per leg. Legs 1-4 are the 6k-step history. From leg5: long GPU
+    legs shaped to the quota week — leg5 = 18k steps (~10h GPU), leg6 = 9k
+    steps (~5h) to spend the week's remaining GPU, then 18k-step legs
+    (~10h each) until the 2B-token target."""
+    ladder = {1: 11_000, 2: 17_000, 3: 23_000, 4: 29_000, 5: 47_000, 6: 56_000,
+              7: 74_000, 8: 92_000, 9: 110_000, 10: 122_000}
+    return ladder.get(leg, TARGET_STEPS)
 
 
 def leg_kernel_ref(leg: int) -> str:
@@ -126,6 +132,10 @@ def build_leg_dir(leg: int, resume_ref: str, data_note: str) -> tuple[Path, dict
                 "%%bash\n",
                 "cd /kaggle/working/myai\n",
                 "CKPT=$(find /kaggle/input -name 'final.pt' 2>/dev/null | head -1)\n",
+                "if [ -z \"${CKPT}\" ]; then\n",
+                "  echo 'final.pt not mounted — fetching previous leg via kernels-output API'\n",
+                f"  CKPT=$(python scripts/fetch_prev_ckpt.py --leg {leg})\n",
+                "fi\n",
                 'test -n "${CKPT}" || { echo NO_CKPT; exit 1; }\n',
                 "DATA=$(dirname \"$(find /kaggle/input -name 'train.pt' 2>/dev/null | head -1)\")\n",
                 'test -f "${DATA}/manifest.json" || { echo NO_DATA; exit 1; }\n',
